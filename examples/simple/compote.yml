@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  web:
+    image: nginx:latest
+    container_name: simple_web
+    ports:
+      - "8080:80"
+    volumes:
+      - ./html:/usr/share/nginx/html:ro
+    restart: unless-stopped
+
+  app:
+    image: node:20-alpine
+    container_name: simple_app
+    working_dir: /app
+    command: ["node", "server.js"]
+    volumes:
+      - ./app:/app
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+    ports:
+      - "3000:3000"
+
+networks:
+  default:
+    driver: bridge

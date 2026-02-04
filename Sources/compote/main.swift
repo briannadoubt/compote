@@ -1,0 +1,1 @@
+CompoteCommand.main()
