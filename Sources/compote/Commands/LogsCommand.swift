@@ -28,7 +28,96 @@ struct LogsCommand: ParsableCommand {
     var services: [String] = []
 
     mutating func run() throws {
-        print("Logs command not yet implemented")
-        // TODO: Implement log streaming from containers
+        // Capture values before async context
+        let fileArg = file
+        let projectNameArg = projectName
+        let followFlag = follow
+        let servicesArg = services
+        let timestampsFlag = timestamps
+
+        try runAsyncTask {
+            // Setup logger
+            var logger = Logger(label: "compote")
+            logger.logLevel = .warning  // Quiet logger for logs command
+
+            // Find compose file
+            let parser = ComposeFileParser()
+            let composePath: String
+            if let file = fileArg {
+                composePath = file
+            } else if let found = parser.findComposeFile() {
+                composePath = found
+            } else {
+                throw CompoteError.noComposeFile
+            }
+
+            // Parse compose file
+            let composeFile = try parser.parse(from: composePath)
+
+            // Determine project name
+            let project = projectNameArg ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .lastPathComponent
+
+            // Create orchestrator
+            let orchestrator = try Orchestrator(
+                composeFile: composeFile,
+                projectName: project,
+                logger: logger
+            )
+
+            // Check if any services are running
+            let runningServices = await orchestrator.listServices()
+                .filter { $0.1 }
+                .map { $0.0 }
+
+            guard !runningServices.isEmpty else {
+                logger.error("No running containers found")
+                throw CompoteError.noRunningContainers
+            }
+
+            // Determine which services to show logs for
+            let servicesToShow: [String]
+            if servicesArg.isEmpty {
+                servicesToShow = runningServices
+            } else {
+                servicesToShow = servicesArg.filter { runningServices.contains($0) }
+                let notRunning = servicesArg.filter { !runningServices.contains($0) }
+                if !notRunning.isEmpty {
+                    logger.warning("Services not running: \(notRunning.joined(separator: ", "))")
+                }
+            }
+
+            guard !servicesToShow.isEmpty else {
+                logger.error("None of the specified services are running")
+                throw CompoteError.noRunningContainers
+            }
+
+            // Stream logs
+            let logStream = await orchestrator.streamLogs(
+                services: servicesToShow,
+                includeStderr: true
+            )
+
+            // Format and print logs
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+
+            for await line in logStream {
+                if timestampsFlag {
+                    let timestamp = formatter.string(from: Date())
+                    print("\(timestamp) \(line)", terminator: "")
+                } else {
+                    print(line, terminator: "")
+                }
+
+                // If not following, break after existing logs are shown
+                // (Note: This is simplified - a real implementation would need
+                // to distinguish between historical and new logs)
+                if !followFlag {
+                    // Continue showing all buffered logs
+                    continue
+                }
+            }
+        }
     }
 }

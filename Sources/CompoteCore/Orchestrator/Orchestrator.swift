@@ -394,4 +394,39 @@ public actor Orchestrator {
         }
         return result
     }
+
+    /// Stream logs from specified services
+    /// - Parameters:
+    ///   - services: List of service names to get logs from (all if empty)
+    ///   - includeStderr: Whether to include stderr in the output
+    /// - Returns: AsyncStream of log lines prefixed with service name
+    public func streamLogs(
+        services: [String] = [],
+        includeStderr: Bool = true
+    ) async -> AsyncStream<String> {
+        let servicesToStream = services.isEmpty ? Array(composeFile.services.keys) : services
+
+        return AsyncStream { continuation in
+            Task {
+                await withTaskGroup(of: Void.self) { group in
+                    for serviceName in servicesToStream {
+                        guard let container = containers[serviceName] else {
+                            continue
+                        }
+
+                        group.addTask {
+                            let logStream = await container.logs(includeStderr: includeStderr)
+                            for await line in logStream {
+                                // Prefix each line with the service name
+                                continuation.yield("[\(serviceName)] \(line)")
+                            }
+                        }
+                    }
+
+                    await group.waitForAll()
+                    continuation.finish()
+                }
+            }
+        }
+    }
 }
