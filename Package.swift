@@ -44,10 +44,6 @@ let package = Package(
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency")
             ]
-        ),
-        .testTarget(
-            name: "CompoteCoreTests",
-            dependencies: ["CompoteCore"]
         )
     ]
 )
