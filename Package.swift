@@ -28,8 +28,7 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ],
             swiftSettings: [
-                .enableUpcomingFeature("StrictConcurrency"),
-                .unsafeFlags(["-Xfrontend", "-disable-round-trip-debug-types"])
+                .enableUpcomingFeature("StrictConcurrency")
             ]
         ),
         .target(
@@ -43,8 +42,7 @@ let package = Package(
                 "Yams"
             ],
             swiftSettings: [
-                .enableUpcomingFeature("StrictConcurrency"),
-                .unsafeFlags(["-Xfrontend", "-disable-round-trip-debug-types"])
+                .enableUpcomingFeature("StrictConcurrency")
             ]
         )
     ]
