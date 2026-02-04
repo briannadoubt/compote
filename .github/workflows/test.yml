@@ -9,18 +9,13 @@ on:
 jobs:
   test:
     name: Test on macOS
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Swift
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: "6.0.2"
-
       - name: Build
-        run: swift build -c release -Xswiftc -gnone
+        run: swift build -c release
 
       - name: Test formula syntax
         run: |
