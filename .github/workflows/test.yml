@@ -20,7 +20,7 @@ jobs:
           swift-version: "6.0.2"
 
       - name: Build
-        run: swift build -c release
+        run: swift build -c release -Xswiftc -gnone
 
       - name: Test formula syntax
         run: |
