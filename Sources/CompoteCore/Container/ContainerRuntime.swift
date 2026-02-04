@@ -37,6 +37,8 @@ public actor ContainerRuntime {
     private var container: LinuxContainer?
     private var isRunning = false
     private var imageReference: String?
+    private let stdoutBuffer = LogBuffer()
+    private let stderrBuffer = LogBuffer()
 
     public init(
         id: String,
@@ -63,6 +65,10 @@ public actor ContainerRuntime {
         ])
 
         self.imageReference = imageReference
+
+        // Capture log buffers outside the closure to avoid actor isolation issues
+        let stdoutWriter = BufferedWriter(buffer: stdoutBuffer)
+        let stderrWriter = BufferedWriter(buffer: stderrBuffer)
 
         // Create container with configuration closure
         // Note: containerManager.create() is mutating, so we need to use a local var
@@ -96,6 +102,10 @@ public actor ContainerRuntime {
 
             // Boot log
             config.bootLog = configuration.bootLog
+
+            // Capture stdout/stderr for log streaming
+            config.process.stdout = stdoutWriter
+            config.process.stderr = stderrWriter
         }
 
         logger.info("Container created, starting VM", metadata: ["container": "\(name)"])
@@ -127,6 +137,11 @@ public actor ContainerRuntime {
             try await container.stop()
             self.isRunning = false
             self.container = nil
+
+            // Close log buffers
+            await stdoutBuffer.close()
+            await stderrBuffer.close()
+
             logger.info("Container stopped", metadata: ["container": "\(name)"])
         } catch {
             logger.error("Failed to stop container", metadata: [
@@ -206,19 +221,32 @@ public actor ContainerRuntime {
         return exitStatus.exitCode
     }
 
-    /// Stream logs from container (placeholder - would need to capture stdout/stderr)
-    public func logs() -> AsyncStream<String> {
+    /// Stream logs from container
+    /// Returns an AsyncStream that yields log lines from stdout and stderr
+    public func logs(includeStderr: Bool = true) async -> AsyncStream<String> {
+        // Merge stdout and stderr streams
         return AsyncStream { continuation in
             Task {
-                guard let container = self.container else {
-                    continuation.finish()
-                    return
-                }
+                await withTaskGroup(of: Void.self) { group in
+                    // Stream stdout
+                    group.addTask {
+                        for await line in await self.stdoutBuffer.stream() {
+                            continuation.yield(line)
+                        }
+                    }
 
-                // TODO: Implement log streaming
-                // This would require capturing the container's stdout/stderr
-                // and streaming it back to the caller
-                continuation.finish()
+                    // Stream stderr if requested
+                    if includeStderr {
+                        group.addTask {
+                            for await line in await self.stderrBuffer.stream() {
+                                continuation.yield(line)
+                            }
+                        }
+                    }
+
+                    await group.waitForAll()
+                    continuation.finish()
+                }
             }
         }
     }
