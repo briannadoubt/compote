@@ -32,7 +32,7 @@ The easiest way to install Compote with all dependencies:
 
 ```bash
 # Add the tap
-brew tap OWNER/compote
+brew tap briannadoubt/compote
 
 # Install (this also installs the required Linux kernel)
 brew install compote
@@ -50,7 +50,7 @@ The Homebrew formula automatically installs:
 ### Using Mint
 
 ```bash
-mint install OWNER/compote
+mint install briannadoubt/compote
 
 # Then install the kernel separately:
 brew install containerization
@@ -60,7 +60,7 @@ brew install containerization
 
 ```bash
 # Clone the repository
-git clone https://github.com/OWNER/compote.git
+git clone https://github.com/briannadoubt/compote.git
 cd compote
 
 # Build

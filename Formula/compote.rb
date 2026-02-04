@@ -1,10 +1,10 @@
 class Compote < Formula
   desc "Docker Compose-like tool using Apple's Containerization framework"
-  homepage "https://github.com/OWNER/compote"
-  url "https://github.com/OWNER/compote/archive/refs/tags/v0.1.0.tar.gz"
+  homepage "https://github.com/briannadoubt/compote"
+  url "https://github.com/briannadoubt/compote/archive/refs/tags/v0.1.0.tar.gz"
   sha256 "0000000000000000000000000000000000000000000000000000000000000000"
   license "Apache-2.0"
-  head "https://github.com/OWNER/compote.git", branch: "main"
+  head "https://github.com/briannadoubt/compote.git", branch: "main"
 
   depends_on "swift" => :build
   depends_on xcode: ["15.0", :build]
