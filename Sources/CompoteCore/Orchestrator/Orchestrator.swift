@@ -162,7 +162,104 @@ public actor Orchestrator {
         }
     }
 
-    /// Stop all services
+    /// Restart containers (stop then start)
+    public func restart(
+        services: [String]? = nil,
+        timeout: Duration = .seconds(10)
+    ) async throws {
+        logger.info("Restarting services", metadata: [
+            "project": "\(projectName)"
+        ])
+
+        // Stop services first
+        try await stop(services: services, timeout: timeout)
+
+        // Then start them again
+        try await start(services: services)
+
+        logger.info("Services restarted", metadata: [
+            "project": "\(projectName)"
+        ])
+    }
+
+    /// Start stopped containers
+    public func start(services: [String]? = nil) async throws {
+        logger.info("Starting services", metadata: [
+            "project": "\(projectName)"
+        ])
+
+        // Determine which services to start
+        let servicesToStart = services ?? Array(composeFile.services.keys)
+
+        // Filter to only include services that exist but are not running
+        var stoppedServices: [String] = []
+        for serviceName in servicesToStart {
+            if let container = containers[serviceName] {
+                let isRunning = await container.getIsRunning()
+                if !isRunning {
+                    stoppedServices.append(serviceName)
+                }
+            }
+        }
+
+        guard !stoppedServices.isEmpty else {
+            logger.info("No stopped containers to start")
+            return
+        }
+
+        // Start services in dependency order
+        let startupOrder = try dependencyResolver.resolveStartupOrder(services: composeFile.services)
+
+        for batch in startupOrder {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for serviceName in batch where stoppedServices.contains(serviceName) {
+                    group.addTask {
+                        try await self.resumeService(serviceName: serviceName)
+                    }
+                }
+
+                try await group.waitForAll()
+            }
+        }
+
+        logger.info("Services started", metadata: [
+            "project": "\(projectName)"
+        ])
+    }
+
+    /// Stop containers without removing them
+    public func stop(
+        services: [String]? = nil,
+        timeout: Duration = .seconds(10)
+    ) async throws {
+        logger.info("Stopping services", metadata: [
+            "project": "\(projectName)"
+        ])
+
+        // Determine which services to stop
+        let servicesToStop = services ?? Array(composeFile.services.keys)
+
+        // Stop containers in reverse dependency order
+        let startupOrder = try dependencyResolver.resolveStartupOrder(services: composeFile.services)
+
+        for batch in startupOrder.reversed() {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for serviceName in batch where servicesToStop.contains(serviceName) {
+                    group.addTask {
+                        try await self.pauseService(serviceName: serviceName, timeout: timeout)
+                    }
+                }
+
+                try await group.waitForAll()
+            }
+        }
+
+        logger.info("Services stopped", metadata: [
+            "project": "\(projectName)"
+        ])
+    }
+
+    /// Stop all services and remove them
     public func down(removeVolumes: Bool = false) async throws {
         logger.info("Stopping services", metadata: [
             "project": "\(projectName)"
@@ -253,7 +350,65 @@ public actor Orchestrator {
         }
     }
 
-    /// Stop a specific service
+    /// Resume a stopped service
+    private func resumeService(serviceName: String) async throws {
+        guard let service = composeFile.services[serviceName] else {
+            throw OrchestratorError.serviceNotFound(serviceName)
+        }
+
+        // Check if container exists but is stopped
+        if let container = containers[serviceName] {
+            let isRunning = await container.getIsRunning()
+            if isRunning {
+                logger.debug("Service already running", metadata: ["service": "\(serviceName)"])
+                return
+            }
+        }
+
+        // Container was stopped, need to recreate and start it
+        // (VM containers typically can't be resumed after stop, need fresh start)
+        logger.info("Starting service", metadata: ["service": "\(serviceName)"])
+
+        do {
+            // Remove old stopped container if it exists
+            if containers[serviceName] != nil {
+                containers.removeValue(forKey: serviceName)
+            }
+
+            // Start fresh (reuse startService logic)
+            try await startService(serviceName: serviceName)
+        } catch {
+            logger.error("Failed to start service", metadata: [
+                "service": "\(serviceName)",
+                "error": "\(error)"
+            ])
+            throw OrchestratorError.failedToStart(serviceName, error)
+        }
+    }
+
+    /// Pause a specific service (stop without removing)
+    private func pauseService(serviceName: String, timeout: Duration) async throws {
+        guard let container = containers[serviceName] else {
+            logger.debug("Service not running", metadata: ["service": "\(serviceName)"])
+            return
+        }
+
+        logger.info("Stopping service", metadata: ["service": "\(serviceName)"])
+
+        do {
+            try await container.stop(timeout: timeout)
+            // Don't delete or remove from containers dictionary - keep for restart
+            logger.info("Service stopped", metadata: ["service": "\(serviceName)"])
+        } catch {
+            logger.error("Failed to stop service", metadata: [
+                "service": "\(serviceName)",
+                "error": "\(error)"
+            ])
+            throw OrchestratorError.failedToStop(serviceName, error)
+        }
+    }
+
+    /// Stop a specific service and remove it
     private func stopService(serviceName: String) async throws {
         guard let container = containers[serviceName] else {
             logger.debug("Service not running", metadata: ["service": "\(serviceName)"])
