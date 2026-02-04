@@ -85,6 +85,8 @@ struct UpCommand: ParsableCommand {
 enum CompoteError: Error, CustomStringConvertible {
     case noComposeFile
     case noRunningContainers
+    case noCommand
+    case commandFailed(Int32)
 
     var description: String {
         switch self {
@@ -92,6 +94,10 @@ enum CompoteError: Error, CustomStringConvertible {
             return "No compose file found. Please specify with --file or create compote.yml/docker-compose.yml"
         case .noRunningContainers:
             return "No running containers found"
+        case .noCommand:
+            return "No command specified"
+        case .commandFailed(let code):
+            return "Command exited with code \(code)"
         }
     }
 }

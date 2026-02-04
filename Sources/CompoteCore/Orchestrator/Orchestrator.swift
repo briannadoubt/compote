@@ -429,4 +429,26 @@ public actor Orchestrator {
             }
         }
     }
+
+    /// Execute a command in a running container
+    /// - Parameters:
+    ///   - serviceName: Name of the service to execute the command in
+    ///   - command: Command and arguments to execute
+    ///   - environment: Environment variables for the command
+    /// - Returns: Exit code from the command
+    public func exec(
+        serviceName: String,
+        command: [String],
+        environment: [String: String] = [:]
+    ) async throws -> Int32 {
+        guard let container = containers[serviceName] else {
+            throw OrchestratorError.serviceNotFound(serviceName)
+        }
+
+        guard await container.getIsRunning() else {
+            throw OrchestratorError.serviceNotFound("\(serviceName) (not running)")
+        }
+
+        return try await container.exec(command: command, environment: environment)
+    }
 }
