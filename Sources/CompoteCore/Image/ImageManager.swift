@@ -104,29 +104,143 @@ public actor ImageManager {
         }
     }
 
-    /// Build image from Dockerfile
-    /// Note: Dockerfile building is not yet implemented.
-    /// This is a placeholder for future implementation.
+    /// Build image from Dockerfile using Docker
     public func buildImage(
         context: String,
         dockerfile: String = "Dockerfile",
-        tag: String
+        tag: String,
+        buildArgs: [String: String] = [:]
     ) async throws -> URL {
-        logger.warning("Dockerfile building not yet implemented", metadata: [
+        logger.info("Building image from Dockerfile", metadata: [
             "context": "\(context)",
             "dockerfile": "\(dockerfile)",
             "tag": "\(tag)"
         ])
 
-        let contextURL = URL(fileURLWithPath: context)
+        // Resolve context path
+        let contextPath: String
+        if context.hasPrefix("/") {
+            contextPath = context
+        } else if context.hasPrefix("~") {
+            contextPath = NSString(string: context).expandingTildeInPath
+        } else {
+            // Relative path - resolve from current directory
+            let cwd = FileManager.default.currentDirectoryPath
+            contextPath = URL(fileURLWithPath: cwd).appendingPathComponent(context).path
+        }
+
+        let contextURL = URL(fileURLWithPath: contextPath)
         let dockerfileURL = contextURL.appendingPathComponent(dockerfile)
 
+        // Verify Dockerfile exists
         guard FileManager.default.fileExists(atPath: dockerfileURL.path) else {
             throw ImageError.failedToBuild("Dockerfile not found at \(dockerfileURL.path)")
         }
 
-        // For now, throw an error indicating this is not yet supported
-        throw ImageError.failedToBuild("Dockerfile building not yet implemented. Please use pre-built images from a registry.")
+        // Check if docker is available
+        let dockerCheckProcess = Process()
+        dockerCheckProcess.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        dockerCheckProcess.arguments = ["which", "docker"]
+
+        let checkPipe = Pipe()
+        dockerCheckProcess.standardOutput = checkPipe
+        dockerCheckProcess.standardError = Pipe()
+
+        do {
+            try dockerCheckProcess.run()
+            dockerCheckProcess.waitUntilExit()
+
+            guard dockerCheckProcess.terminationStatus == 0 else {
+                throw ImageError.failedToBuild("Docker is not installed or not in PATH. Please install Docker to build images.")
+            }
+        } catch {
+            throw ImageError.failedToBuild("Failed to check for Docker: \(error.localizedDescription)")
+        }
+
+        // Build docker build command
+        var args = ["docker", "build"]
+        args.append(contentsOf: ["-t", tag])
+        args.append(contentsOf: ["-f", dockerfileURL.path])
+
+        // Add build args
+        for (key, value) in buildArgs {
+            args.append("--build-arg")
+            args.append("\(key)=\(value)")
+        }
+
+        args.append(contextPath)
+
+        // Run docker build
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = args
+
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+
+        logger.debug("Running docker build", metadata: [
+            "command": "\(args.joined(separator: " "))"
+        ])
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+
+            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+
+            let output = String(data: outputData, encoding: .utf8) ?? ""
+            let errorOutput = String(data: errorData, encoding: .utf8) ?? ""
+
+            guard process.terminationStatus == 0 else {
+                logger.error("Docker build failed", metadata: [
+                    "exitCode": "\(process.terminationStatus)",
+                    "output": "\(output)",
+                    "error": "\(errorOutput)"
+                ])
+                throw ImageError.failedToBuild("Docker build failed with exit code \(process.terminationStatus): \(errorOutput)")
+            }
+
+            logger.info("Image built successfully", metadata: [
+                "tag": "\(tag)"
+            ])
+
+            // Register the built image locally
+            let parsed = parseImageReference(tag)
+            let imagePath = imagesDir
+                .appendingPathComponent(parsed.name.replacingOccurrences(of: "/", with: "_"))
+                .appendingPathComponent(parsed.tag)
+
+            // Create directory for the image
+            try FileManager.default.createDirectory(
+                at: imagePath,
+                withIntermediateDirectories: true
+            )
+
+            // Store image info
+            let info = ImageInfo(
+                reference: tag,
+                digest: nil,  // Built images don't have digest until pushed
+                size: 0,  // Size not immediately available for built images
+                localPath: imagePath
+            )
+            images[tag] = info
+
+            logger.info("Image registered", metadata: [
+                "tag": "\(tag)",
+                "path": "\(imagePath.path)"
+            ])
+
+            return imagePath
+        } catch {
+            logger.error("Failed to build image", metadata: [
+                "context": "\(context)",
+                "error": "\(error)"
+            ])
+            throw ImageError.failedToBuild(error.localizedDescription)
+        }
     }
 
     /// Get image path

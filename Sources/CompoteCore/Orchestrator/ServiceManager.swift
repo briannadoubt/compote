@@ -31,10 +31,12 @@ public struct ServiceManager: Sendable {
             let context = build.context ?? "."
             let dockerfile = build.dockerfile ?? "Dockerfile"
             let tag = "\(projectName)_\(serviceName):latest"
+            let buildArgs = build.args ?? [:]
             _ = try await imageManager.buildImage(
                 context: context,
                 dockerfile: dockerfile,
-                tag: tag
+                tag: tag,
+                buildArgs: buildArgs
             )
             imageReference = tag
         } else {
