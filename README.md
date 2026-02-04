@@ -32,7 +32,7 @@ The easiest way to install Compote with all dependencies:
 
 ```bash
 # Add the tap
-brew tap briannadoubt/compote
+brew tap briannadoubt/tap
 
 # Install (this also installs the required Linux kernel)
 brew install compote

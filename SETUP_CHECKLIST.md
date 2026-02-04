@@ -109,7 +109,7 @@ After the release is published:
 
 ```bash
 # If using separate tap:
-brew tap briannadoubt/compote
+brew tap briannadoubt/tap
 brew install compote
 
 # Verify

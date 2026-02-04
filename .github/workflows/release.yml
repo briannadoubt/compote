@@ -51,7 +51,7 @@ jobs:
 
             ### Homebrew (Recommended)
             ```bash
-            brew tap briannadoubt/compote
+            brew tap briannadoubt/tap
             brew install compote
             ```
 

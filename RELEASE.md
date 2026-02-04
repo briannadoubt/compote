@@ -40,7 +40,7 @@ The GitHub Actions workflow (`.github/workflows/release.yml`) will automatically
 
 Users can now install with:
 ```bash
-brew tap briannadoubt/compote
+brew tap briannadoubt/tap
 brew install compote
 ```
 

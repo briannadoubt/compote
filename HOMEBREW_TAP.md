@@ -6,7 +6,7 @@ This guide explains how to create and publish a Homebrew tap for Compote.
 
 A Homebrew "tap" is a third-party repository of formulae. It allows users to install your software with:
 ```bash
-brew tap briannadoubt/compote
+brew tap briannadoubt/tap
 brew install compote
 ```
 
@@ -43,7 +43,7 @@ git push origin main
 ### 3. Users Can Now Install
 
 ```bash
-brew tap briannadoubt/compote
+brew tap briannadoubt/tap
 brew install compote
 ```
 
@@ -138,7 +138,7 @@ compote setup
 brew uninstall compote
 
 # Install from tap
-brew tap briannadoubt/compote
+brew tap briannadoubt/tap
 brew install compote
 
 # Verify
