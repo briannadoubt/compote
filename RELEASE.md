@@ -40,7 +40,7 @@ The GitHub Actions workflow (`.github/workflows/release.yml`) will automatically
 
 Users can now install with:
 ```bash
-brew tap OWNER/compote
+brew tap briannadoubt/compote
 brew install compote
 ```
 
@@ -66,7 +66,7 @@ shasum -a 256 "compote-v${VERSION}-macos-arm64.tar.gz"
 
 ### 3. Create GitHub Release
 
-1. Go to: https://github.com/OWNER/compote/releases/new
+1. Go to: https://github.com/briannadoubt/compote/releases/new
 2. Choose the tag
 3. Upload the `.tar.gz` file
 4. Generate release notes
@@ -79,7 +79,7 @@ shasum -a 256 "compote-v${VERSION}-macos-arm64.tar.gz"
 SHA256=$(shasum -a 256 compote-v${VERSION}-macos-arm64.tar.gz | awk '{print $1}')
 
 # Update Formula/compote.rb:
-# - url: https://github.com/OWNER/compote/archive/refs/tags/v${VERSION}.tar.gz
+# - url: https://github.com/briannadoubt/compote/archive/refs/tags/v${VERSION}.tar.gz
 # - sha256: ${SHA256}
 
 git add Formula/compote.rb

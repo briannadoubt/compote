@@ -19,11 +19,11 @@ The following files have been created for you:
 
 ### 1. Update Placeholders
 
-Replace `OWNER` with your GitHub username in these files:
+Replace `briannadoubt` with your GitHub username in these files:
 
 ```bash
 # Use your editor or run:
-find . -type f \( -name "*.rb" -o -name "*.md" -o -name "*.yml" \) -exec sed -i '' 's/OWNER/your-github-username/g' {} +
+find . -type f \( -name "*.rb" -o -name "*.md" -o -name "*.yml" \) -exec sed -i '' 's/briannadoubt/your-github-username/g' {} +
 ```
 
 Files with placeholders:
@@ -42,7 +42,7 @@ git add .
 git commit -m "Initial commit"
 
 # Create repo on GitHub, then:
-git remote add origin https://github.com/OWNER/compote.git
+git remote add origin https://github.com/briannadoubt/compote.git
 git branch -M main
 git push -u origin main
 ```
@@ -52,8 +52,8 @@ git push -u origin main
 Option A: **Separate Tap Repository (Recommended)**
 
 ```bash
-# On GitHub, create: https://github.com/OWNER/homebrew-compote
-git clone https://github.com/OWNER/homebrew-compote.git
+# On GitHub, create: https://github.com/briannadoubt/homebrew-compote
+git clone https://github.com/briannadoubt/homebrew-compote.git
 cd homebrew-compote
 
 # Create Formula directory
@@ -109,7 +109,7 @@ After the release is published:
 
 ```bash
 # If using separate tap:
-brew tap OWNER/compote
+brew tap briannadoubt/compote
 brew install compote
 
 # Verify
@@ -147,7 +147,7 @@ compote setup
 
 ## 🚀 Next Steps
 
-1. [ ] Replace all `OWNER` placeholders
+1. [ ] Replace all `briannadoubt` placeholders
 2. [ ] Push to GitHub
 3. [ ] Create homebrew-compote tap repo (optional but recommended)
 4. [ ] Create v0.1.0 release

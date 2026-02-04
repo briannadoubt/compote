@@ -50,7 +50,7 @@ jobs:
 
             ### Homebrew (Recommended)
             ```bash
-            brew tap OWNER/compote
+            brew tap briannadoubt/compote
             brew install compote
             ```
 

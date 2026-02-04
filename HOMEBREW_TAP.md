@@ -6,7 +6,7 @@ This guide explains how to create and publish a Homebrew tap for Compote.
 
 A Homebrew "tap" is a third-party repository of formulae. It allows users to install your software with:
 ```bash
-brew tap OWNER/compote
+brew tap briannadoubt/compote
 brew install compote
 ```
 
@@ -16,7 +16,7 @@ brew install compote
 
 Create a new GitHub repository named `homebrew-compote`:
 ```bash
-# On GitHub, create: https://github.com/OWNER/homebrew-compote
+# On GitHub, create: https://github.com/briannadoubt/homebrew-compote
 ```
 
 **Important**: The repository name MUST start with `homebrew-`.
@@ -25,14 +25,14 @@ Create a new GitHub repository named `homebrew-compote`:
 
 ```bash
 # Clone your new tap repo
-git clone https://github.com/OWNER/homebrew-compote.git
+git clone https://github.com/briannadoubt/homebrew-compote.git
 cd homebrew-compote
 
 # Copy formula from main repo
 cp /path/to/compote/Formula/compote.rb ./Formula/compote.rb
 
-# Update OWNER placeholder
-sed -i '' 's/OWNER/your-github-username/g' Formula/compote.rb
+# Update briannadoubt placeholder
+sed -i '' 's/briannadoubt/your-github-username/g' Formula/compote.rb
 
 # Commit and push
 git add Formula/compote.rb
@@ -43,7 +43,7 @@ git push origin main
 ### 3. Users Can Now Install
 
 ```bash
-brew tap OWNER/compote
+brew tap briannadoubt/compote
 brew install compote
 ```
 
@@ -53,7 +53,7 @@ You can keep the formula in the main Compote repository. Users install with:
 
 ```bash
 brew install --build-from-source \
-  https://raw.githubusercontent.com/OWNER/compote/main/Formula/compote.rb
+  https://raw.githubusercontent.com/briannadoubt/compote/main/Formula/compote.rb
 ```
 
 This is simpler but:
@@ -74,7 +74,7 @@ Or manually:
 
 ```bash
 # Get the SHA256 of your release tarball
-curl -L https://github.com/OWNER/compote/archive/refs/tags/v0.1.0.tar.gz | shasum -a 256
+curl -L https://github.com/briannadoubt/compote/archive/refs/tags/v0.1.0.tar.gz | shasum -a 256
 
 # Update Formula/compote.rb with:
 # - New version in url
@@ -138,7 +138,7 @@ compote setup
 brew uninstall compote
 
 # Install from tap
-brew tap OWNER/compote
+brew tap briannadoubt/compote
 brew install compote
 
 # Verify
