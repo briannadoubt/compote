@@ -29,6 +29,7 @@ jobs:
 
       - name: Build bottle
         run: |
+          brew uninstall compote || true
           brew install --build-bottle briannadoubt/tap/compote
           brew bottle --no-rebuild --json briannadoubt/tap/compote
 
