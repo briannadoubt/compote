@@ -45,7 +45,9 @@ jobs:
 
           # Get macOS version
           MACOS_VERSION=$(sw_vers -productVersion | cut -d. -f1)
-          if [ "$MACOS_VERSION" = "15" ]; then
+          if [ "$MACOS_VERSION" = "26" ]; then
+            echo "macos_tag=tahoe" >> $GITHUB_OUTPUT
+          elif [ "$MACOS_VERSION" = "15" ]; then
             echo "macos_tag=sequoia" >> $GITHUB_OUTPUT
           elif [ "$MACOS_VERSION" = "14" ]; then
             echo "macos_tag=sonoma" >> $GITHUB_OUTPUT
@@ -107,26 +109,25 @@ jobs:
       - name: Update tap formula
         run: |
           cd tap
+          TAG="${{ github.event.release.tag_name || inputs.tag }}"
           BOTTLE_LINE="    sha256 cellar: :any_skip_relocation, ${{ steps.bottle_info.outputs.arch_tag }}_${{ steps.bottle_info.outputs.macos_tag }}: \"${{ steps.bottle_info.outputs.bottle_sha }}\""
 
           if grep -q "bottle do" Formula/compote.rb; then
-            # Update existing bottle block
-            sed -i '' "/bottle do/a\\
-            $BOTTLE_LINE
-            " Formula/compote.rb
-          else
-            # Add new bottle block after head line
-            sed -i '' "/head.*branch:/a\\
-            \\
-            \ \ bottle do\\
-            \ \ \ \ root_url \"https://github.com/briannadoubt/compote/releases/download/${{ github.event.release.tag_name }}\"\\
-            $BOTTLE_LINE\\
-            \ \ end
-            " Formula/compote.rb
+            # Replace existing bottle block completely
+            sed -i '' '/bottle do/,/^  end$/d' Formula/compote.rb
           fi
+
+          # Add new bottle block after head line
+          sed -i '' "/head.*branch:/a\\
+          \\
+          \ \ bottle do\\
+          \ \ \ \ root_url \"https://github.com/briannadoubt/compote/releases/download/${TAG}\"\\
+          $BOTTLE_LINE\\
+          \ \ end
+          " Formula/compote.rb
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/compote.rb
-          git commit -m "Add bottle for ${{ github.event.release.tag_name }}"
+          git commit -m "Add bottle for ${TAG}"
           git push
