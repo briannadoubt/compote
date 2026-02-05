@@ -29,8 +29,18 @@ jobs:
 
       - name: Build bottle
         run: |
-          brew uninstall compote || true
-          brew install --build-from-source --build-bottle briannadoubt/tap/compote
+          # Remove old installation
+          brew uninstall compote 2>/dev/null || true
+
+          # Get formula and remove bottle block temporarily
+          FORMULA_PATH=$(brew formula briannadoubt/tap/compote)
+          cp "$FORMULA_PATH" /tmp/compote.rb
+          sed -i '' '/bottle do/,/^  end$/d' /tmp/compote.rb
+
+          # Install from modified formula
+          brew install --build-bottle /tmp/compote.rb
+
+          # Create bottle
           brew bottle --no-rebuild --json briannadoubt/tap/compote
 
       - name: Get bottle info
