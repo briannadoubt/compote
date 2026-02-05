@@ -31,9 +31,9 @@ struct LogsCommand: ParsableCommand {
         // Capture values before async context
         let fileArg = file
         let projectNameArg = projectName
-        let followFlag = follow
         let servicesArg = services
         let timestampsFlag = timestamps
+        // Note: --follow flag is currently always enabled (streams continuously)
 
         try runAsyncTask {
             // Setup logger
@@ -108,14 +108,6 @@ struct LogsCommand: ParsableCommand {
                     print("\(timestamp) \(line)", terminator: "")
                 } else {
                     print(line, terminator: "")
-                }
-
-                // If not following, break after existing logs are shown
-                // (Note: This is simplified - a real implementation would need
-                // to distinguish between historical and new logs)
-                if !followFlag {
-                    // Continue showing all buffered logs
-                    continue
                 }
             }
         }

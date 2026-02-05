@@ -21,39 +21,40 @@ Compote provides a familiar `docker-compose` interface while leveraging Apple's 
 ## Requirements
 
 - macOS 15.0+ (Sequoia or later)
-- Apple Silicon (ARM64) or Intel Mac
-- Linux kernel (automatically installed with Homebrew)
+- Xcode 16.0 or later
+- Apple Silicon (ARM64) recommended (Intel Macs also supported)
+- Linux kernel (automatically downloaded on first run)
 
 ## Installation
 
 ### Homebrew (Recommended)
 
-The easiest way to install Compote with all dependencies:
+The easiest way to install Compote:
 
 ```bash
 # Add the tap
 brew tap briannadoubt/tap
 
-# Install (this also installs the required Linux kernel)
+# Install compote
 brew install compote
 
-# Verify installation
+# Verify installation (downloads Linux kernel on first run)
 compote setup
 ```
 
-The Homebrew formula automatically installs:
+The Homebrew formula installs:
 - ✅ Compote binary
-- ✅ Apple's Containerization framework
-- ✅ Linux kernel for running containers
-- ✅ All required dependencies
+- ✅ Shell completions
+
+The Linux kernel and container runtime are automatically downloaded when you first run `compote setup` or `compote up`.
 
 ### Using Mint
 
 ```bash
 mint install briannadoubt/compote
 
-# Then install the kernel separately:
-brew install containerization
+# Then verify setup (downloads kernel automatically)
+compote setup
 ```
 
 ### From Source
@@ -69,10 +70,7 @@ swift build -c release
 # Install binary
 sudo cp .build/release/compote /usr/local/bin/
 
-# Install dependencies (includes Linux kernel)
-brew install containerization
-
-# Verify setup
+# Verify setup (downloads kernel automatically)
 compote setup
 ```
 
@@ -169,27 +167,21 @@ volumes:
 
 If you see "Linux kernel not found" errors:
 
-1. **Check if containerization is installed**:
+1. **Run setup to download kernel**:
    ```bash
-   brew list containerization
+   compote setup
    ```
 
-2. **Reinstall if needed**:
+   This will automatically download the required Linux kernel to:
+   `~/Library/Application Support/compote/kernel/`
+
+2. **Check kernel location**:
    ```bash
-   brew reinstall containerization
+   ls -la ~/Library/Application\ Support/compote/kernel/vmlinuz
    ```
 
-3. **Verify kernel location**:
-   ```bash
-   ls -la /opt/homebrew/share/containerization/kernel/vmlinuz
-   # or for Intel Macs:
-   ls -la /usr/local/share/containerization/kernel/vmlinuz
-   ```
-
-4. **Run setup to diagnose**:
-   ```bash
-   compote setup --verbose
-   ```
+3. **Manually download if needed**:
+   Visit https://github.com/apple/containerization for kernel download instructions
 
 ### Networking Issues (macOS < 26)
 
@@ -245,25 +237,23 @@ swift test
 
 ### Implemented ✅
 
-- ✅ Full container lifecycle (create, start, stop, delete)
+- ✅ Full container lifecycle (create, start, stop, restart, delete)
 - ✅ OCI image pulling from registries
+- ✅ Build from Dockerfile with build args
 - ✅ State persistence across sessions
 - ✅ Named volumes and bind mounts
 - ✅ Network management with vmnet (macOS 26+)
 - ✅ Service orchestration with dependencies
 - ✅ Health checks with retry logic
 - ✅ Container exec (run commands in containers)
+- ✅ Log streaming with --follow and --timestamps
 - ✅ Multi-service parallel startup
 - ✅ Resource limits (CPU, memory)
-
-### In Progress 🚧
-
-- 🚧 Log streaming (placeholder implemented)
-- 🚧 Port forwarding (requires additional configuration)
+- ✅ Environment variable interpolation
 
 ### Planned 📋
 
-- [ ] Build from Dockerfile
+- [ ] Port forwarding (host to container)
 - [ ] Network DNS resolution between containers
 - [ ] Config and secrets support
 - [ ] Scale command
