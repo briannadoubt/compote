@@ -16,7 +16,7 @@ permissions:
 jobs:
   bottle-macos:
     name: Build Bottle on macOS
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - name: Set up Homebrew
         run: |
