@@ -1,8 +1,8 @@
 class Compote < Formula
   desc "Docker Compose-like tool using Apple's Containerization framework"
   homepage "https://github.com/briannadoubt/compote"
-  url "https://github.com/briannadoubt/compote/archive/refs/tags/0.2.0.tar.gz"
-  sha256 "b7944727dd8f7321e4c1f22a893e7e88f43d2e00ff45ec4ff727a51e5468bd2b"
+  url "https://github.com/briannadoubt/compote/archive/refs/tags/0.2.1.tar.gz"
+  sha256 "99f3d886161d95d2a6d2fd9e4c7524cfad7f1e00f22b452efdfc93ab3739e3b0"
   license "Apache-2.0"
   head "https://github.com/briannadoubt/compote.git", branch: "main"
 
