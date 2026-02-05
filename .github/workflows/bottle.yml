@@ -1,0 +1,132 @@
+name: Build Homebrew Bottle
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build bottle for'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  bottle-macos:
+    name: Build Bottle on macOS
+    runs-on: macos-15
+    steps:
+      - name: Set up Homebrew
+        run: |
+          echo "HOMEBREW_NO_AUTO_UPDATE=1" >> $GITHUB_ENV
+          echo "HOMEBREW_NO_INSTALL_CLEANUP=1" >> $GITHUB_ENV
+
+      - name: Tap repository
+        run: |
+          brew tap briannadoubt/tap
+
+      - name: Build bottle
+        run: |
+          brew install --build-bottle briannadoubt/tap/compote
+          brew bottle --no-rebuild --json briannadoubt/tap/compote
+
+      - name: Get bottle info
+        id: bottle_info
+        run: |
+          # Get bottle filename
+          BOTTLE_FILE=$(ls compote--*.bottle.tar.gz)
+          echo "bottle_file=$BOTTLE_FILE" >> $GITHUB_OUTPUT
+
+          # Get SHA256
+          BOTTLE_SHA=$(shasum -a 256 "$BOTTLE_FILE" | awk '{print $1}')
+          echo "bottle_sha=$BOTTLE_SHA" >> $GITHUB_OUTPUT
+
+          # Get macOS version
+          MACOS_VERSION=$(sw_vers -productVersion | cut -d. -f1)
+          if [ "$MACOS_VERSION" = "15" ]; then
+            echo "macos_tag=sequoia" >> $GITHUB_OUTPUT
+          elif [ "$MACOS_VERSION" = "14" ]; then
+            echo "macos_tag=sonoma" >> $GITHUB_OUTPUT
+          else
+            echo "macos_tag=ventura" >> $GITHUB_OUTPUT
+          fi
+
+          # Get architecture
+          ARCH=$(uname -m)
+          if [ "$ARCH" = "arm64" ]; then
+            echo "arch_tag=arm64" >> $GITHUB_OUTPUT
+          else
+            echo "arch_tag=x86_64" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload bottle to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.event.release.tag_name || inputs.tag }}"
+          gh release upload "$TAG" "${{ steps.bottle_info.outputs.bottle_file }}" \
+            --repo ${{ github.repository }} \
+            --clobber
+
+      - name: Comment on release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "${{ github.event.release.tag_name }}" \
+            --repo ${{ github.repository }} \
+            --json body -q .body > release_body.txt
+
+          cat >> release_body.txt << EOF
+
+          ---
+
+          ## 🍾 Homebrew Bottle
+
+          A precompiled bottle is now available for faster installation!
+
+          **Platform**: ${{ steps.bottle_info.outputs.arch_tag }}_${{ steps.bottle_info.outputs.macos_tag }}
+          **SHA256**: \`${{ steps.bottle_info.outputs.bottle_sha }}\`
+
+          The homebrew-tap formula will be automatically updated.
+          EOF
+
+          gh release edit "${{ github.event.release.tag_name }}" \
+            --repo ${{ github.repository }} \
+            --notes-file release_body.txt
+
+      - name: Checkout tap repository
+        uses: actions/checkout@v4
+        with:
+          repository: briannadoubt/homebrew-tap
+          token: ${{ secrets.TAP_GITHUB_TOKEN }}
+          path: tap
+
+      - name: Update tap formula
+        run: |
+          cd tap
+          BOTTLE_LINE="    sha256 cellar: :any_skip_relocation, ${{ steps.bottle_info.outputs.arch_tag }}_${{ steps.bottle_info.outputs.macos_tag }}: \"${{ steps.bottle_info.outputs.bottle_sha }}\""
+
+          if grep -q "bottle do" Formula/compote.rb; then
+            # Update existing bottle block
+            sed -i '' "/bottle do/a\\
+            $BOTTLE_LINE
+            " Formula/compote.rb
+          else
+            # Add new bottle block after head line
+            sed -i '' "/head.*branch:/a\\
+            \\
+            \ \ bottle do\\
+            \ \ \ \ root_url \"https://github.com/briannadoubt/compote/releases/download/${{ github.event.release.tag_name }}\"\\
+            $BOTTLE_LINE\\
+            \ \ end
+            " Formula/compote.rb
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/compote.rb
+          git commit -m "Add bottle for ${{ github.event.release.tag_name }}"
+          git push
