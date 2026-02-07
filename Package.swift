@@ -15,7 +15,7 @@ let package = Package(
         .library(name: "CompoteCore", targets: ["CompoteCore"])
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/containerization.git", from: "0.1.0"),
+        .package(url: "https://github.com/briannadoubt/containerization.git", from: "0.1.0"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
         .package(url: "https://github.com/jpsim/Yams.git", from: "5.0.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.6.0")
