@@ -1,11 +1,16 @@
 class Compote < Formula
   desc "Docker Compose-like tool using Apple's Containerization framework"
   homepage "https://github.com/briannadoubt/compote"
-  url "https://github.com/briannadoubt/compote/archive/refs/tags/0.2.1.tar.gz"
-  sha256 "3c77e0a09c9020c37e8abf52056ad58831cc546a5724558fd7583243fb5df36f"
+  url "https://github.com/briannadoubt/compote/archive/refs/tags/v1.0.1-rc.0-signing-test-20260208-084147.tar.gz"
+  sha256 "7c43e9e0c08bf72b9bce6b3458040e3f7ec95356d770d678411af7882668c523"
   license "Apache-2.0"
   head "https://github.com/briannadoubt/compote.git", branch: "main"
 
+  bottle do
+    root_url "https://github.com/briannadoubt/compote/releases/download/v1.0.1-rc.0-signing-test-20260208-084147"
+    sha256 arm64_tahoe: "0019dfc4b32d63c1392aa264aed2253c1e0c2fb09216f8e2cc269bbfb8bb49b5"
+  end
+  
   depends_on "swift" => :build
   depends_on xcode: ["16.0", :build]
   depends_on macos: :sequoia
