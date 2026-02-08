@@ -185,6 +185,7 @@ jobs:
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v5
         with:
+          base: main
           commit-message: "Update formula to ${{ github.ref_name }}"
           title: "Update formula to ${{ github.ref_name }}"
           body: |
