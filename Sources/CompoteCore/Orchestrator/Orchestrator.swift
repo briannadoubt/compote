@@ -5,6 +5,7 @@ import Logging
 public enum OrchestratorError: Error, CustomStringConvertible {
     case serviceNotFound(String)
     case serviceNotRunning(String)
+    case invalidScale(String)
     case failedToStart(String, Error)
     case failedToStop(String, Error)
 
@@ -14,6 +15,8 @@ public enum OrchestratorError: Error, CustomStringConvertible {
             return "Service not found: \(name)"
         case .serviceNotRunning(let name):
             return "Service is known but not running: \(name). Start services with `compote up -d` or `compote start`."
+        case .invalidScale(let message):
+            return "Invalid scale request: \(message)"
         case .failedToStart(let name, let error):
             return "Failed to start service \(name): \(error)"
         case .failedToStop(let name, let error):
@@ -44,8 +47,8 @@ public actor Orchestrator {
     private let stateManager: StateManager
     private var containerManager: ContainerManager?
 
-    private var containers: [String: ContainerRuntime] = [:]
-    private var knownContainers: [String: StateManager.ContainerInfo] = [:]
+    private var containers: [String: [Int: ContainerRuntime]] = [:]
+    private var knownContainers: [String: [Int: StateManager.ContainerInfo]] = [:]
     private var hasHydratedState = false
 
     public init(
@@ -153,7 +156,7 @@ public actor Orchestrator {
                         "service": "\(serviceName)"
                     ])
 
-                    if let container = containers[serviceName],
+                    if let container = containers[serviceName]?[1],
                        let healthCheck = service.healthcheck {
                         _ = try await healthChecker.runHealthCheck(
                             serviceName: serviceName,
@@ -211,9 +214,10 @@ public actor Orchestrator {
         // Filter to only include services that exist but are not running
         var stoppedServices: [String] = []
         for serviceName in servicesToStart {
-            if let container = containers[serviceName] {
-                let isRunning = await container.getIsRunning()
-                if !isRunning {
+            let replicas = containers[serviceName] ?? [:]
+            if !replicas.isEmpty {
+                let hasRunningReplica = await hasRunningReplicas(serviceName: serviceName)
+                if !hasRunningReplica {
                     stoppedServices.append(serviceName)
                 }
             } else if knownContainers[serviceName] != nil {
@@ -354,6 +358,43 @@ public actor Orchestrator {
         }
     }
 
+    /// Scale a service to the requested replica count.
+    public func scale(serviceName: String, replicas: Int) async throws {
+        await hydrateStateIfNeeded()
+
+        guard replicas >= 0 else {
+            throw OrchestratorError.invalidScale("replica count must be >= 0")
+        }
+        guard composeFile.services[serviceName] != nil else {
+            throw OrchestratorError.serviceNotFound(serviceName)
+        }
+
+        try await createNetworks()
+        try await createVolumes()
+
+        let currentReplicas = knownReplicaIndices(for: serviceName)
+        let currentMax = currentReplicas.max() ?? 0
+
+        logger.info("Scaling service", metadata: [
+            "service": "\(serviceName)",
+            "from": "\(currentReplicas.count)",
+            "to": "\(replicas)"
+        ])
+
+        if replicas > currentReplicas.count {
+            // Ensure replica 1 always exists first for stable behavior.
+            for replicaIndex in 1...replicas where !currentReplicas.contains(replicaIndex) {
+                try await startService(serviceName: serviceName, replicaIndex: replicaIndex)
+            }
+        } else if replicas < currentReplicas.count {
+            // Remove highest-numbered replicas first.
+            for replicaIndex in stride(from: currentMax, through: 1, by: -1) {
+                guard replicaIndex > replicas else { continue }
+                try await removeReplica(serviceName: serviceName, replicaIndex: replicaIndex)
+            }
+        }
+    }
+
     /// Stop all services and remove them
     public func down(removeVolumes: Bool = false) async throws {
         await hydrateStateIfNeeded()
@@ -396,12 +437,16 @@ public actor Orchestrator {
     }
 
     /// Start a specific service
-    private func startService(serviceName: String) async throws {
+    private func startService(serviceName: String, replicaIndex: Int = 1) async throws {
         guard let service = composeFile.services[serviceName] else {
             throw OrchestratorError.serviceNotFound(serviceName)
         }
 
-        logger.info("Starting service", metadata: ["service": "\(serviceName)"])
+        let displayName = containerDisplayName(serviceName: serviceName, replicaIndex: replicaIndex)
+        logger.info("Starting service", metadata: [
+            "service": "\(serviceName)",
+            "replica": "\(replicaIndex)"
+        ])
 
         do {
             // Initialize container manager if needed
@@ -419,10 +464,10 @@ public actor Orchestrator {
             )
 
             // Create and start container
-            let containerID = "\(projectName)_\(serviceName)_1"
+            let containerID = containerID(serviceName: serviceName, replicaIndex: replicaIndex)
             let container = ContainerRuntime(
                 id: containerID,
-                name: serviceName,
+                name: displayName,
                 containerManager: manager,
                 logger: logger
             )
@@ -434,25 +479,32 @@ public actor Orchestrator {
                 readOnly: false,
                 configuration: config
             )
-            containers[serviceName] = container
+            var replicas = containers[serviceName] ?? [:]
+            replicas[replicaIndex] = container
+            containers[serviceName] = replicas
 
             // Save container to state
             try await stateManager.updateContainer(info: StateManager.ContainerInfo(
                 id: containerID,
-                name: serviceName,
+                name: displayName,
                 imageReference: imageReference,
                 serviceName: serviceName,
-                replicaIndex: 1
+                replicaIndex: replicaIndex
             ))
-            knownContainers[serviceName] = StateManager.ContainerInfo(
+            var knownReplicas = knownContainers[serviceName] ?? [:]
+            knownReplicas[replicaIndex] = StateManager.ContainerInfo(
                 id: containerID,
-                name: serviceName,
+                name: displayName,
                 imageReference: imageReference,
                 serviceName: serviceName,
-                replicaIndex: 1
+                replicaIndex: replicaIndex
             )
+            knownContainers[serviceName] = knownReplicas
 
-            logger.info("Service started", metadata: ["service": "\(serviceName)"])
+            logger.info("Service started", metadata: [
+                "service": "\(serviceName)",
+                "replica": "\(replicaIndex)"
+            ])
         } catch {
             logger.error("Failed to start service", metadata: [
                 "service": "\(serviceName)",
@@ -468,27 +520,25 @@ public actor Orchestrator {
             throw OrchestratorError.serviceNotFound(serviceName)
         }
 
-        // Check if container exists but is stopped
-        if let container = containers[serviceName] {
-            let isRunning = await container.getIsRunning()
-            if isRunning {
-                logger.debug("Service already running", metadata: ["service": "\(serviceName)"])
-                return
-            }
+        if await hasRunningReplicas(serviceName: serviceName) {
+            logger.debug("Service already running", metadata: ["service": "\(serviceName)"])
+            return
         }
 
-        // Container was stopped, need to recreate and start it
-        // (VM containers typically can't be resumed after stop, need fresh start)
         logger.info("Starting service", metadata: ["service": "\(serviceName)"])
 
         do {
-            // Remove old stopped container if it exists
-            if containers[serviceName] != nil {
+            // Remove old stopped runtime containers if they exist
+            if let existing = containers[serviceName], !existing.isEmpty {
                 containers.removeValue(forKey: serviceName)
             }
 
-            // Start fresh (reuse startService logic)
-            try await startService(serviceName: serviceName)
+            let replicaIndices = knownReplicaIndices(for: serviceName)
+            let replicasToStart = replicaIndices.isEmpty ? [1] : replicaIndices
+
+            for replicaIndex in replicasToStart {
+                try await startService(serviceName: serviceName, replicaIndex: replicaIndex)
+            }
         } catch {
             logger.error("Failed to start service", metadata: [
                 "service": "\(serviceName)",
@@ -500,7 +550,7 @@ public actor Orchestrator {
 
     /// Pause a specific service (stop without removing)
     private func pauseService(serviceName: String, timeout: Duration) async throws {
-        guard let container = containers[serviceName] else {
+        guard let replicas = containers[serviceName], !replicas.isEmpty else {
             logger.debug("Service not running", metadata: ["service": "\(serviceName)"])
             return
         }
@@ -508,7 +558,9 @@ public actor Orchestrator {
         logger.info("Stopping service", metadata: ["service": "\(serviceName)"])
 
         do {
-            try await container.stop(timeout: timeout)
+            for (_, container) in replicas {
+                try await container.stop(timeout: timeout)
+            }
             // Don't delete or remove from containers dictionary - keep for restart
             logger.info("Service stopped", metadata: ["service": "\(serviceName)"])
         } catch {
@@ -522,7 +574,7 @@ public actor Orchestrator {
 
     /// Stop a specific service and remove it
     private func stopService(serviceName: String) async throws {
-        guard let container = containers[serviceName] else {
+        guard let replicas = containers[serviceName], !replicas.isEmpty else {
             logger.debug("Service not running", metadata: ["service": "\(serviceName)"])
             return
         }
@@ -530,12 +582,18 @@ public actor Orchestrator {
         logger.info("Stopping service", metadata: ["service": "\(serviceName)"])
 
         do {
-            try await container.stop()
-            try await container.delete()
+            for (_, container) in replicas {
+                try await container.stop()
+                try await container.delete()
+            }
             containers.removeValue(forKey: serviceName)
 
             // Remove from state
-            try await stateManager.removeContainer(name: serviceName)
+            if let knownReplicas = knownContainers[serviceName] {
+                for (_, info) in knownReplicas {
+                    try await stateManager.removeContainer(name: info.name)
+                }
+            }
             knownContainers.removeValue(forKey: serviceName)
 
             logger.info("Service stopped", metadata: ["service": "\(serviceName)"])
@@ -545,6 +603,31 @@ public actor Orchestrator {
                 "error": "\(error)"
             ])
             throw OrchestratorError.failedToStop(serviceName, error)
+        }
+    }
+
+    private func removeReplica(serviceName: String, replicaIndex: Int) async throws {
+        guard let container = containers[serviceName]?[replicaIndex] else {
+            return
+        }
+
+        do {
+            try await container.stop()
+            try await container.delete()
+
+            var runtimeReplicas = containers[serviceName] ?? [:]
+            runtimeReplicas.removeValue(forKey: replicaIndex)
+            containers[serviceName] = runtimeReplicas.isEmpty ? nil : runtimeReplicas
+
+            if let info = knownContainers[serviceName]?[replicaIndex] {
+                try await stateManager.removeContainer(name: info.name)
+            }
+
+            var knownReplicas = knownContainers[serviceName] ?? [:]
+            knownReplicas.removeValue(forKey: replicaIndex)
+            knownContainers[serviceName] = knownReplicas.isEmpty ? nil : knownReplicas
+        } catch {
+            throw OrchestratorError.failedToStop("\(serviceName)#\(replicaIndex)", error)
         }
     }
 
@@ -637,9 +720,11 @@ public actor Orchestrator {
     /// Remove known container state entries for services.
     private func removeKnownContainerState(for services: [String]) async throws {
         for serviceName in services {
-            if knownContainers[serviceName] != nil {
+            if let knownReplicas = knownContainers[serviceName] {
                 knownContainers.removeValue(forKey: serviceName)
-                try await stateManager.removeContainer(name: serviceName)
+                for (_, info) in knownReplicas {
+                    try await stateManager.removeContainer(name: info.name)
+                }
             }
         }
     }
@@ -647,10 +732,13 @@ public actor Orchestrator {
     /// Wait for all containers to exit
     private func waitForContainers() async throws {
         try await withThrowingTaskGroup(of: (String, Int32).self) { group in
-            for (name, container) in containers {
-                group.addTask {
-                    let exitCode = try await container.wait()
-                    return (name, exitCode)
+            for (_, replicas) in containers {
+                for (_, container) in replicas {
+                    let name = container.name
+                    group.addTask {
+                        let exitCode = try await container.wait()
+                        return (name, exitCode)
+                    }
                 }
             }
 
@@ -676,7 +764,7 @@ public actor Orchestrator {
         var result: [ServiceStatus] = []
         let allServiceNames = Set(composeFile.services.keys).union(knownContainers.keys)
         for serviceName in allServiceNames.sorted() {
-            let isRunning = await containers[serviceName]?.getIsRunning() ?? false
+            let isRunning = await hasRunningReplicas(serviceName: serviceName)
             let isKnown = knownContainers[serviceName] != nil || containers[serviceName] != nil
             result.append(ServiceStatus(name: serviceName, isRunning: isRunning, isKnown: isKnown))
         }
@@ -700,15 +788,17 @@ public actor Orchestrator {
             Task {
                 await withTaskGroup(of: Void.self) { group in
                     for serviceName in servicesToStream {
-                        guard let container = containers[serviceName] else {
+                        guard let replicas = containers[serviceName], !replicas.isEmpty else {
                             continue
                         }
 
-                        group.addTask {
-                            let logStream = await container.logs(includeStderr: includeStderr)
-                            for await line in logStream {
-                                // Prefix each line with the service name
-                                continuation.yield("[\(serviceName)] \(line)")
+                        for (replicaIndex, container) in replicas {
+                            group.addTask {
+                                let logStream = await container.logs(includeStderr: includeStderr)
+                                let label = replicaIndex == 1 ? serviceName : "\(serviceName)#\(replicaIndex)"
+                                for await line in logStream {
+                                    continuation.yield("[\(label)] \(line)")
+                                }
                             }
                         }
                     }
@@ -733,7 +823,7 @@ public actor Orchestrator {
     ) async throws -> Int32 {
         await hydrateStateIfNeeded()
 
-        guard let container = containers[serviceName] else {
+        guard let container = containers[serviceName]?[1] else {
             if knownContainers[serviceName] != nil {
                 throw OrchestratorError.serviceNotRunning(serviceName)
             }
@@ -747,6 +837,20 @@ public actor Orchestrator {
         return try await container.exec(command: command, environment: environment)
     }
 
+    private func containerDisplayName(serviceName: String, replicaIndex: Int) -> String {
+        replicaIndex == 1 ? serviceName : "\(serviceName)-\(replicaIndex)"
+    }
+
+    private func containerID(serviceName: String, replicaIndex: Int) -> String {
+        "\(projectName)_\(serviceName)_\(replicaIndex)"
+    }
+
+    private func knownReplicaIndices(for serviceName: String) -> [Int] {
+        let runtimeReplicas = containers[serviceName].map { Array($0.keys) } ?? []
+        let knownReplicas = knownContainers[serviceName].map { Array($0.keys) } ?? []
+        return Array(Set(runtimeReplicas).union(knownReplicas)).sorted()
+    }
+
     /// Hydrate known container state from persisted state manager data.
     /// This keeps command behavior more consistent across separate CLI invocations.
     private func hydrateStateIfNeeded() async {
@@ -755,10 +859,30 @@ public actor Orchestrator {
 
         do {
             if let state = try await stateManager.load() {
-                knownContainers = state.containers
+                var hydrated: [String: [Int: StateManager.ContainerInfo]] = [:]
+                for (_, info) in state.containers {
+                    let service = info.serviceName ?? info.name
+                    let replica = info.replicaIndex ?? 1
+                    var replicas = hydrated[service] ?? [:]
+                    replicas[replica] = info
+                    hydrated[service] = replicas
+                }
+                knownContainers = hydrated
             }
         } catch {
             logger.warning("Failed to hydrate state", metadata: ["error": "\(error)"])
         }
+    }
+
+    private func hasRunningReplicas(serviceName: String) async -> Bool {
+        guard let replicas = containers[serviceName], !replicas.isEmpty else {
+            return false
+        }
+        for (_, container) in replicas {
+            if await container.getIsRunning() {
+                return true
+            }
+        }
+        return false
     }
 }
