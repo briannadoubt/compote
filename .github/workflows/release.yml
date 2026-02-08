@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   create-release:
@@ -183,17 +184,39 @@ jobs:
           RUBY
 
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v5
-        with:
-          base: main
-          commit-message: "Update formula to ${{ github.ref_name }}"
-          title: "Update formula to ${{ github.ref_name }}"
-          body: |
-            Automated formula update for release ${{ github.ref_name }} with bottle metadata.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          BRANCH="formula-update-${{ github.ref_name }}"
+          BRANCH="${BRANCH//\//-}"
+          TITLE="Update formula to ${{ github.ref_name }}"
+          BODY=$(cat <<EOF
+          Automated formula update for release ${{ github.ref_name }} with bottle metadata.
 
-            - Version: ${{ steps.release_info.outputs.version }}
-            - Source SHA256: ${{ steps.release_info.outputs.sha256 }}
-            - Bottle: ${{ steps.release_info.outputs.bottle_file }}
-            - Bottle SHA256: ${{ steps.release_info.outputs.bottle_sha256 }}
-          branch: formula-update-${{ github.ref_name }}
-          delete-branch: true
+          - Version: ${{ steps.release_info.outputs.version }}
+          - Source SHA256: ${{ steps.release_info.outputs.sha256 }}
+          - Bottle: ${{ steps.release_info.outputs.bottle_file }}
+          - Bottle SHA256: ${{ steps.release_info.outputs.bottle_sha256 }}
+          EOF
+          )
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add Formula/compote.rb
+
+          if git diff --cached --quiet; then
+            echo "No formula changes to commit; skipping PR creation."
+            exit 0
+          fi
+
+          git commit -m "$TITLE"
+          git push --force-with-lease origin "$BRANCH"
+
+          EXISTING_PR=$(gh pr list --head "$BRANCH" --base main --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING_PR" ]; then
+            gh pr edit "$EXISTING_PR" --title "$TITLE" --body "$BODY" --base main
+          else
+            gh pr create --base main --head "$BRANCH" --title "$TITLE" --body "$BODY"
+          fi
