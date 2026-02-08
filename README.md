@@ -255,10 +255,10 @@ swift test
 - ✅ Service-level config and secret file mounts
 - ✅ Scale command (`compote scale service=replicas`)
 - ✅ Service name discovery via generated `/etc/hosts` entries
+- ✅ TCP port forwarding (`service.ports`) via host relay processes (`socat` required)
 
 ### Planned 📋
 
-- [ ] Port forwarding (host to container)
 
 ## License
 

@@ -1,11 +1,15 @@
 import Foundation
 import Containerization
 import Logging
+#if canImport(Darwin)
+import Darwin
+#endif
 
 public enum OrchestratorError: Error, CustomStringConvertible {
     case serviceNotFound(String)
     case serviceNotRunning(String)
     case invalidScale(String)
+    case portForwardingFailed(String)
     case failedToStart(String, Error)
     case failedToStop(String, Error)
 
@@ -17,6 +21,8 @@ public enum OrchestratorError: Error, CustomStringConvertible {
             return "Service is known but not running: \(name). Start services with `compote up -d` or `compote start`."
         case .invalidScale(let message):
             return "Invalid scale request: \(message)"
+        case .portForwardingFailed(let message):
+            return "Port forwarding failed: \(message)"
         case .failedToStart(let name, let error):
             return "Failed to start service \(name): \(error)"
         case .failedToStop(let name, let error):
@@ -52,6 +58,7 @@ public actor Orchestrator {
     private var containers: [String: [Int: ContainerRuntime]] = [:]
     private var knownContainers: [String: [Int: StateManager.ContainerInfo]] = [:]
     private var serviceIPs: [String: [Int: String]] = [:]
+    private var portForwardPIDs: [String: Int32] = [:]
     private var hasHydratedState = false
 
     public init(
@@ -425,6 +432,7 @@ public actor Orchestrator {
         // not attachable in this process (e.g. fresh CLI invocation).
         let allServiceNames = Array(composeFile.services.keys)
         try await removeKnownContainerState(for: allServiceNames)
+        try await removeAllPortForwards()
 
         // Remove networks
         try await removeNetworks()
@@ -501,6 +509,15 @@ public actor Orchestrator {
             replicas[replicaIndex] = container
             containers[serviceName] = replicas
 
+            if let targetIP = serviceIPs[serviceName]?[replicaIndex] {
+                try await setupPortForwards(
+                    serviceName: serviceName,
+                    replicaIndex: replicaIndex,
+                    service: service,
+                    targetIP: targetIP
+                )
+            }
+
             // Save container to state
             try await stateManager.updateContainer(info: StateManager.ContainerInfo(
                 id: containerID,
@@ -576,8 +593,9 @@ public actor Orchestrator {
         logger.info("Stopping service", metadata: ["service": "\(serviceName)"])
 
         do {
-            for (_, container) in replicas {
+            for (replicaIndex, container) in replicas {
                 try await container.stop(timeout: timeout)
+                try await removePortForwards(serviceName: serviceName, replicaIndex: replicaIndex)
             }
             // Don't delete or remove from containers dictionary - keep for restart
             logger.info("Service stopped", metadata: ["service": "\(serviceName)"])
@@ -600,9 +618,10 @@ public actor Orchestrator {
         logger.info("Stopping service", metadata: ["service": "\(serviceName)"])
 
         do {
-            for (_, container) in replicas {
+            for (replicaIndex, container) in replicas {
                 try await container.stop()
                 try await container.delete()
+                try await removePortForwards(serviceName: serviceName, replicaIndex: replicaIndex)
             }
             containers.removeValue(forKey: serviceName)
 
@@ -633,6 +652,7 @@ public actor Orchestrator {
         do {
             try await container.stop()
             try await container.delete()
+            try await removePortForwards(serviceName: serviceName, replicaIndex: replicaIndex)
 
             var runtimeReplicas = containers[serviceName] ?? [:]
             runtimeReplicas.removeValue(forKey: replicaIndex)
@@ -885,6 +905,38 @@ public actor Orchestrator {
         return Array(Set(runtimeReplicas).union(knownReplicas)).sorted()
     }
 
+    private struct PortMapping {
+        let hostIP: String
+        let hostPort: Int
+        let containerPort: Int
+        let proto: String
+    }
+
+    private func parsePortMapping(_ spec: String) -> PortMapping? {
+        let parts = spec.split(separator: "/", maxSplits: 1).map(String.init)
+        let mappingPart = parts[0]
+        let proto = parts.count > 1 ? parts[1].lowercased() : "tcp"
+        guard proto == "tcp" else {
+            // UDP support can be added later; skip for now.
+            return nil
+        }
+
+        let fields = mappingPart.split(separator: ":").map(String.init)
+        if fields.count == 2,
+           let hostPort = Int(fields[0]),
+           let containerPort = Int(fields[1]) {
+            return PortMapping(hostIP: "0.0.0.0", hostPort: hostPort, containerPort: containerPort, proto: proto)
+        }
+
+        if fields.count == 3,
+           let hostPort = Int(fields[1]),
+           let containerPort = Int(fields[2]) {
+            return PortMapping(hostIP: fields[0], hostPort: hostPort, containerPort: containerPort, proto: proto)
+        }
+
+        return nil
+    }
+
     private func makeServiceDiscoveryHostsEntries() -> [Hosts.Entry] {
         var entries: [Hosts.Entry] = []
 
@@ -898,6 +950,123 @@ public actor Orchestrator {
         return entries.sorted { lhs, rhs in
             lhs.hostnames.joined(separator: ",") < rhs.hostnames.joined(separator: ",")
         }
+    }
+
+    private func ensureSocatAvailable() throws {
+        let check = Process()
+        check.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        check.arguments = ["which", "socat"]
+        check.standardOutput = Pipe()
+        check.standardError = Pipe()
+
+        do {
+            try check.run()
+            check.waitUntilExit()
+            guard check.terminationStatus == 0 else {
+                throw OrchestratorError.portForwardingFailed(
+                    "Port mappings require `socat` to be installed and on PATH."
+                )
+            }
+        } catch {
+            throw OrchestratorError.portForwardingFailed("Failed to check for socat: \(error)")
+        }
+    }
+
+    private func portForwardID(serviceName: String, replicaIndex: Int, hostPort: Int) -> String {
+        "\(serviceName)#\(replicaIndex)#\(hostPort)"
+    }
+
+    private func setupPortForwards(
+        serviceName: String,
+        replicaIndex: Int,
+        service: Service,
+        targetIP: String
+    ) async throws {
+        guard let ports = service.ports, !ports.isEmpty else { return }
+
+        try ensureSocatAvailable()
+        try await removePortForwards(serviceName: serviceName, replicaIndex: replicaIndex)
+
+        for portSpec in ports {
+            guard let mapping = parsePortMapping(portSpec) else {
+                logger.warning("Skipping unsupported port mapping", metadata: [
+                    "service": "\(serviceName)",
+                    "replica": "\(replicaIndex)",
+                    "mapping": "\(portSpec)"
+                ])
+                continue
+            }
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = [
+                "socat",
+                "TCP-LISTEN:\(mapping.hostPort),bind=\(mapping.hostIP),reuseaddr,fork",
+                "TCP:\(targetIP):\(mapping.containerPort)"
+            ]
+
+            let nullDevice = FileHandle.nullDevice
+            process.standardInput = nullDevice
+            process.standardOutput = nullDevice
+            process.standardError = nullDevice
+
+            do {
+                try process.run()
+                let pid = process.processIdentifier
+                let id = portForwardID(
+                    serviceName: serviceName,
+                    replicaIndex: replicaIndex,
+                    hostPort: mapping.hostPort
+                )
+                portForwardPIDs[id] = pid
+                try await stateManager.updatePortForward(info: StateManager.PortForwardInfo(
+                    id: id,
+                    serviceName: serviceName,
+                    replicaIndex: replicaIndex,
+                    hostIP: mapping.hostIP,
+                    hostPort: mapping.hostPort,
+                    targetIP: targetIP,
+                    targetPort: mapping.containerPort,
+                    pid: pid
+                ))
+            } catch {
+                throw OrchestratorError.portForwardingFailed(
+                    "Could not create forward \(portSpec) for \(serviceName): \(error)"
+                )
+            }
+        }
+    }
+
+    private func removePortForwards(serviceName: String, replicaIndex: Int) async throws {
+        let state = try await stateManager.load()
+        guard let state else { return }
+
+        let forwards = state.portForwards.values.filter {
+            $0.serviceName == serviceName && $0.replicaIndex == replicaIndex
+        }
+
+        for forward in forwards {
+            terminatePortForward(pid: forward.pid)
+            portForwardPIDs.removeValue(forKey: forward.id)
+            try await stateManager.removePortForward(id: forward.id)
+        }
+    }
+
+    private func removeAllPortForwards() async throws {
+        let state = try await stateManager.load()
+        guard let state else { return }
+
+        for forward in state.portForwards.values {
+            terminatePortForward(pid: forward.pid)
+            portForwardPIDs.removeValue(forKey: forward.id)
+            try await stateManager.removePortForward(id: forward.id)
+        }
+    }
+
+    private func terminatePortForward(pid: Int32) {
+        #if canImport(Darwin)
+        _ = kill(pid, SIGTERM)
+        #endif
     }
 
     /// Hydrate known container state from persisted state manager data.
@@ -917,6 +1086,7 @@ public actor Orchestrator {
                     hydrated[service] = replicas
                 }
                 knownContainers = hydrated
+                portForwardPIDs = Dictionary(uniqueKeysWithValues: state.portForwards.map { ($0.key, $0.value.pid) })
             }
         } catch {
             logger.warning("Failed to hydrate state", metadata: ["error": "\(error)"])
