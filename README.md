@@ -250,15 +250,15 @@ swift test
 - ✅ Multi-service parallel startup
 - ✅ Resource limits (CPU, memory)
 - ✅ Environment variable interpolation
+- ✅ Pull command (`compote pull`) and `up --pull`
+- ✅ Push command for service images (`compote push`)
+- ✅ Service-level config and secret file mounts
 
 ### Planned 📋
 
 - [ ] Port forwarding (host to container)
 - [ ] Network DNS resolution between containers
-- [ ] Config and secrets support
 - [ ] Scale command
-- [ ] Pull command
-- [ ] Push command for custom images
 
 ## License
 
