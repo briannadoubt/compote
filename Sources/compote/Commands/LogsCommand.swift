@@ -65,13 +65,21 @@ struct LogsCommand: ParsableCommand {
                 logger: logger
             )
 
-            // Check if any services are running
-            let runningServices = await orchestrator.listServices()
-                .filter { $0.1 }
-                .map { $0.0 }
+            // Check service statuses
+            let serviceStatuses = await orchestrator.listServiceStatuses()
+            let runningServices = serviceStatuses
+                .filter { $0.isRunning }
+                .map { $0.name }
+            let knownStoppedServices = serviceStatuses
+                .filter { !$0.isRunning && $0.isKnown }
+                .map { $0.name }
 
             guard !runningServices.isEmpty else {
-                logger.error("No running containers found")
+                if knownStoppedServices.isEmpty {
+                    logger.error("No running containers found")
+                } else {
+                    logger.error("No running containers found. Known stopped services: \(knownStoppedServices.joined(separator: ", ")). Start them with `compote start` or `compote up -d`.")
+                }
                 throw CompoteError.noRunningContainers
             }
 

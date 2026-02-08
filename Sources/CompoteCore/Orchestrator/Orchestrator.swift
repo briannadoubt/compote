@@ -216,6 +216,9 @@ public actor Orchestrator {
                 if !isRunning {
                     stoppedServices.append(serviceName)
                 }
+            } else if knownContainers[serviceName] != nil {
+                // Service is known from persisted state but not currently running in this process.
+                stoppedServices.append(serviceName)
             }
         }
 
@@ -300,6 +303,11 @@ public actor Orchestrator {
                 try await group.waitForAll()
             }
         }
+
+        // Ensure persisted container state is cleaned up even if containers were
+        // not attachable in this process (e.g. fresh CLI invocation).
+        let allServiceNames = Array(composeFile.services.keys)
+        try await removeKnownContainerState(for: allServiceNames)
 
         // Remove networks
         try await removeNetworks()
@@ -546,6 +554,16 @@ public actor Orchestrator {
         }
 
         logger.info("All volumes removed")
+    }
+
+    /// Remove known container state entries for services.
+    private func removeKnownContainerState(for services: [String]) async throws {
+        for serviceName in services {
+            if knownContainers[serviceName] != nil {
+                knownContainers.removeValue(forKey: serviceName)
+                try await stateManager.removeContainer(name: serviceName)
+            }
+        }
     }
 
     /// Wait for all containers to exit
