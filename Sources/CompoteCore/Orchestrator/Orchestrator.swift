@@ -4,6 +4,7 @@ import Logging
 
 public enum OrchestratorError: Error, CustomStringConvertible {
     case serviceNotFound(String)
+    case serviceNotRunning(String)
     case failedToStart(String, Error)
     case failedToStop(String, Error)
 
@@ -11,6 +12,8 @@ public enum OrchestratorError: Error, CustomStringConvertible {
         switch self {
         case .serviceNotFound(let name):
             return "Service not found: \(name)"
+        case .serviceNotRunning(let name):
+            return "Service is known but not running: \(name). Start services with `compote up -d` or `compote start`."
         case .failedToStart(let name, let error):
             return "Failed to start service \(name): \(error)"
         case .failedToStop(let name, let error):
@@ -21,6 +24,12 @@ public enum OrchestratorError: Error, CustomStringConvertible {
 
 /// Main orchestrator for managing multi-service applications
 public actor Orchestrator {
+    public struct ServiceStatus: Sendable {
+        public let name: String
+        public let isRunning: Bool
+        public let isKnown: Bool
+    }
+
     private let composeFile: ComposeFile
     private let projectName: String
     private let logger: Logger
@@ -36,6 +45,8 @@ public actor Orchestrator {
     private var containerManager: ContainerManager?
 
     private var containers: [String: ContainerRuntime] = [:]
+    private var knownContainers: [String: StateManager.ContainerInfo] = [:]
+    private var hasHydratedState = false
 
     public init(
         composeFile: ComposeFile,
@@ -90,6 +101,8 @@ public actor Orchestrator {
         services: [String]? = nil,
         detach: Bool = false
     ) async throws {
+        await hydrateStateIfNeeded()
+
         logger.info("Starting services", metadata: [
             "project": "\(projectName)"
         ])
@@ -167,6 +180,8 @@ public actor Orchestrator {
         services: [String]? = nil,
         timeout: Duration = .seconds(10)
     ) async throws {
+        await hydrateStateIfNeeded()
+
         logger.info("Restarting services", metadata: [
             "project": "\(projectName)"
         ])
@@ -184,6 +199,8 @@ public actor Orchestrator {
 
     /// Start stopped containers
     public func start(services: [String]? = nil) async throws {
+        await hydrateStateIfNeeded()
+
         logger.info("Starting services", metadata: [
             "project": "\(projectName)"
         ])
@@ -232,6 +249,8 @@ public actor Orchestrator {
         services: [String]? = nil,
         timeout: Duration = .seconds(10)
     ) async throws {
+        await hydrateStateIfNeeded()
+
         logger.info("Stopping services", metadata: [
             "project": "\(projectName)"
         ])
@@ -261,6 +280,8 @@ public actor Orchestrator {
 
     /// Stop all services and remove them
     public func down(removeVolumes: Bool = false) async throws {
+        await hydrateStateIfNeeded()
+
         logger.info("Stopping services", metadata: [
             "project": "\(projectName)"
         ])
@@ -339,6 +360,11 @@ public actor Orchestrator {
                 name: serviceName,
                 imageReference: imageReference
             ))
+            knownContainers[serviceName] = StateManager.ContainerInfo(
+                id: containerID,
+                name: serviceName,
+                imageReference: imageReference
+            )
 
             logger.info("Service started", metadata: ["service": "\(serviceName)"])
         } catch {
@@ -352,7 +378,7 @@ public actor Orchestrator {
 
     /// Resume a stopped service
     private func resumeService(serviceName: String) async throws {
-        guard let service = composeFile.services[serviceName] else {
+        guard composeFile.services[serviceName] != nil else {
             throw OrchestratorError.serviceNotFound(serviceName)
         }
 
@@ -424,6 +450,7 @@ public actor Orchestrator {
 
             // Remove from state
             try await stateManager.removeContainer(name: serviceName)
+            knownContainers.removeValue(forKey: serviceName)
 
             logger.info("Service stopped", metadata: ["service": "\(serviceName)"])
         } catch {
@@ -542,10 +569,20 @@ public actor Orchestrator {
 
     /// List running services
     public func listServices() async -> [(String, Bool)] {
-        var result: [(String, Bool)] = []
-        for serviceName in composeFile.services.keys {
+        let statuses = await listServiceStatuses()
+        return statuses.map { ($0.name, $0.isRunning) }
+    }
+
+    /// List service statuses, including whether a service has been created before.
+    public func listServiceStatuses() async -> [ServiceStatus] {
+        await hydrateStateIfNeeded()
+
+        var result: [ServiceStatus] = []
+        let allServiceNames = Set(composeFile.services.keys).union(knownContainers.keys)
+        for serviceName in allServiceNames.sorted() {
             let isRunning = await containers[serviceName]?.getIsRunning() ?? false
-            result.append((serviceName, isRunning))
+            let isKnown = knownContainers[serviceName] != nil || containers[serviceName] != nil
+            result.append(ServiceStatus(name: serviceName, isRunning: isRunning, isKnown: isKnown))
         }
         return result
     }
@@ -559,6 +596,8 @@ public actor Orchestrator {
         services: [String] = [],
         includeStderr: Bool = true
     ) async -> AsyncStream<String> {
+        await hydrateStateIfNeeded()
+
         let servicesToStream = services.isEmpty ? Array(composeFile.services.keys) : services
 
         return AsyncStream { continuation in
@@ -596,14 +635,34 @@ public actor Orchestrator {
         command: [String],
         environment: [String: String] = [:]
     ) async throws -> Int32 {
+        await hydrateStateIfNeeded()
+
         guard let container = containers[serviceName] else {
+            if knownContainers[serviceName] != nil {
+                throw OrchestratorError.serviceNotRunning(serviceName)
+            }
             throw OrchestratorError.serviceNotFound(serviceName)
         }
 
         guard await container.getIsRunning() else {
-            throw OrchestratorError.serviceNotFound("\(serviceName) (not running)")
+            throw OrchestratorError.serviceNotRunning(serviceName)
         }
 
         return try await container.exec(command: command, environment: environment)
+    }
+
+    /// Hydrate known container state from persisted state manager data.
+    /// This keeps command behavior more consistent across separate CLI invocations.
+    private func hydrateStateIfNeeded() async {
+        guard !hasHydratedState else { return }
+        hasHydratedState = true
+
+        do {
+            if let state = try await stateManager.load() {
+                knownContainers = state.containers
+            }
+        } catch {
+            logger.warning("Failed to hydrate state", metadata: ["error": "\(error)"])
+        }
     }
 }

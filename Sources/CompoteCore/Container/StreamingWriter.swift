@@ -47,18 +47,18 @@ public actor LogBuffer {
         return AsyncStream { continuation in
             Task {
                 // First, yield all existing lines
-                let existingLines = await self.getLines()
+                let existingLines = self.getLines()
                 for line in existingLines {
                     continuation.yield(line)
                 }
 
                 // If already closed, finish immediately
-                let closed = await self.isClosed
+                let closed = self.isClosed
                 if closed {
                     continuation.finish()
                 } else {
                     // Otherwise, register for future lines
-                    await self.registerContinuation(continuation)
+                    self.registerContinuation(continuation)
                 }
             }
         }

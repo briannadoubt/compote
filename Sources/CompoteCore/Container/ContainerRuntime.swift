@@ -162,7 +162,7 @@ public actor ContainerRuntime {
         // Delete container from manager
         do {
             var manager = self.containerManager
-            try await manager.delete(id)
+            try manager.delete(id)
             self.containerManager = manager
             logger.info("Container deleted", metadata: ["container": "\(name)"])
         } catch {

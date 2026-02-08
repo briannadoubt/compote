@@ -118,7 +118,6 @@ public actor KernelManager {
             for pathPattern in possiblePaths {
                 // Handle glob patterns
                 if pathPattern.contains("*") {
-                    let paths = try? FileManager.default.contentsOfDirectory(atPath: URL(fileURLWithPath: pathPattern).deletingLastPathComponent().path)
                     // This is simplified - in production we'd want proper glob expansion
                     continue
                 }

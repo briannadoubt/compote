@@ -51,15 +51,22 @@ struct PsCommand: ParsableCommand {
             )
 
             // List services
-            let services = await orchestrator.listServices()
+            let services = await orchestrator.listServiceStatuses()
 
             // Print table
             print("NAME                    STATUS")
             print("─────────────────────────────────────────")
 
-            for (name, isRunning) in services.sorted(by: { $0.0 < $1.0 }) {
-                let status = isRunning ? "Up" : "Exited"
-                let paddedName = name.padding(toLength: 24, withPad: " ", startingAt: 0)
+            for service in services.sorted(by: { $0.name < $1.name }) {
+                let status: String
+                if service.isRunning {
+                    status = "Up"
+                } else if service.isKnown {
+                    status = "Exited"
+                } else {
+                    status = "Not Created"
+                }
+                let paddedName = service.name.padding(toLength: 24, withPad: " ", startingAt: 0)
                 print("\(paddedName)\(status)")
             }
         }

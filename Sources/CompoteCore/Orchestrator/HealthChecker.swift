@@ -29,7 +29,6 @@ public actor HealthChecker {
         }
 
         let interval = parseDuration(healthCheck.interval ?? "30s")
-        let timeout = parseDuration(healthCheck.timeout ?? "30s")
         let retries = healthCheck.retries ?? 3
         let startPeriod = parseDuration(healthCheck.start_period ?? "0s")
 
