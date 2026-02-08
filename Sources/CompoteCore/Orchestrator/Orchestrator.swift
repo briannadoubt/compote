@@ -313,6 +313,47 @@ public actor Orchestrator {
         }
     }
 
+    /// Push images for selected services
+    public func push(services: [String]? = nil) async throws {
+        await hydrateStateIfNeeded()
+
+        let servicesToPush = services ?? Array(composeFile.services.keys)
+
+        logger.info("Pushing service images", metadata: [
+            "project": "\(projectName)",
+            "count": "\(servicesToPush.count)"
+        ])
+
+        for serviceName in servicesToPush {
+            guard let service = composeFile.services[serviceName] else {
+                throw OrchestratorError.serviceNotFound(serviceName)
+            }
+
+            let imageToPush: String?
+            if let image = service.image {
+                imageToPush = image
+            } else if service.build != nil {
+                imageToPush = "\(projectName)_\(serviceName):latest"
+            } else {
+                imageToPush = nil
+            }
+
+            guard let imageReference = imageToPush else {
+                logger.info("Skipping service without pushable image", metadata: [
+                    "service": "\(serviceName)"
+                ])
+                continue
+            }
+
+            try await imageManager.pushImage(reference: imageReference)
+
+            logger.info("Image pushed", metadata: [
+                "service": "\(serviceName)",
+                "image": "\(imageReference)"
+            ])
+        }
+    }
+
     /// Stop all services and remove them
     public func down(removeVolumes: Bool = false) async throws {
         await hydrateStateIfNeeded()

@@ -5,6 +5,7 @@ import Logging
 public enum ImageError: Error, CustomStringConvertible {
     case failedToPull(String)
     case failedToBuild(String)
+    case failedToPush(String)
     case notFound(String)
     case invalidReference(String)
 
@@ -14,6 +15,8 @@ public enum ImageError: Error, CustomStringConvertible {
             return "Failed to pull image: \(msg)"
         case .failedToBuild(let msg):
             return "Failed to build image: \(msg)"
+        case .failedToPush(let msg):
+            return "Failed to push image: \(msg)"
         case .notFound(let ref):
             return "Image not found: \(ref)"
         case .invalidReference(let ref):
@@ -249,6 +252,67 @@ public actor ImageManager {
             throw ImageError.notFound(reference)
         }
         return info.localPath
+    }
+
+    /// Push image to remote registry using Docker
+    public func pushImage(reference: String) async throws {
+        logger.info("Pushing image", metadata: [
+            "image": "\(reference)"
+        ])
+
+        // Check if docker is available
+        let dockerCheckProcess = Process()
+        dockerCheckProcess.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        dockerCheckProcess.arguments = ["which", "docker"]
+        dockerCheckProcess.standardOutput = Pipe()
+        dockerCheckProcess.standardError = Pipe()
+
+        do {
+            try dockerCheckProcess.run()
+            dockerCheckProcess.waitUntilExit()
+
+            guard dockerCheckProcess.terminationStatus == 0 else {
+                throw ImageError.failedToPush("Docker is not installed or not in PATH. Please install Docker to push images.")
+            }
+        } catch {
+            throw ImageError.failedToPush("Failed to check for Docker: \(error.localizedDescription)")
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["docker", "push", reference]
+
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+
+            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+
+            let output = String(data: outputData, encoding: .utf8) ?? ""
+            let errorOutput = String(data: errorData, encoding: .utf8) ?? ""
+
+            guard process.terminationStatus == 0 else {
+                logger.error("Docker push failed", metadata: [
+                    "image": "\(reference)",
+                    "exitCode": "\(process.terminationStatus)",
+                    "output": "\(output)",
+                    "error": "\(errorOutput)"
+                ])
+                throw ImageError.failedToPush("Docker push failed with exit code \(process.terminationStatus): \(errorOutput)")
+            }
+
+            logger.info("Image pushed", metadata: [
+                "image": "\(reference)"
+            ])
+        } catch {
+            throw ImageError.failedToPush(error.localizedDescription)
+        }
     }
 
     /// Parse image reference into components
