@@ -79,9 +79,12 @@ Option B: **In-Repo Formula**
 ./scripts/test-formula.sh
 
 # Or manually:
-brew install --build-from-source ./Formula/compote.rb
+brew tap-new local/compote-test
+cp Formula/compote.rb "$(brew --repo local/compote-test)/Formula/compote.rb"
+brew install --build-from-source local/compote-test/compote
 compote setup
-brew uninstall compote
+brew uninstall local/compote-test/compote
+brew untap local/compote-test
 
 # Confirm dependencies expected by runtime paths are present
 brew list socat >/dev/null
@@ -171,7 +174,7 @@ compote setup
 
 ## 🆘 Need Help?
 
-- Formula not working? Run: `brew audit --strict Formula/compote.rb`
+- Formula not working? Run: `./scripts/test-formula.sh` (uses a temporary local tap)
 - Build failing? Check: `.github/workflows/release.yml`
 - Installation issues? Check: `compote setup --verbose`
 

@@ -8,7 +8,7 @@ class Compote < Formula
 
   depends_on "swift" => :build
   depends_on xcode: ["16.0", :build]
-  depends_on :macos => :sequoia
+  depends_on macos: :sequoia
   depends_on "socat"
 
   def install
@@ -41,9 +41,13 @@ class Compote < Formula
 
   test do
     # Test that the binary runs
-    system "#{bin}/compote", "--version"
+    system bin/"compote", "--version"
 
-    # Test setup command
-    system "#{bin}/compote", "setup" rescue nil
+    # Setup may be unavailable in sandboxed CI contexts.
+    begin
+      system bin/"compote", "setup"
+    rescue RuntimeError
+      nil
+    end
   end
 end

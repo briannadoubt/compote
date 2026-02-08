@@ -81,7 +81,7 @@ curl -L https://github.com/briannadoubt/compote/archive/refs/tags/v0.1.0.tar.gz 
 # - New sha256
 
 # Test locally
-brew install --build-from-source ./Formula/compote.rb
+./scripts/test-formula.sh
 
 # Commit and push
 git add Formula/compote.rb
@@ -121,11 +121,8 @@ brew test-bot compote
 ### Local Testing
 
 ```bash
-# Test the formula
-brew audit --strict Formula/compote.rb
-
-# Install locally
-brew install --build-from-source ./Formula/compote.rb
+# Test formula + install from an ephemeral local tap
+./scripts/test-formula.sh
 
 # Verify
 compote setup
