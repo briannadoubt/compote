@@ -253,12 +253,12 @@ swift test
 - ✅ Pull command (`compote pull`) and `up --pull`
 - ✅ Push command for service images (`compote push`)
 - ✅ Service-level config and secret file mounts
+- ✅ Scale command (`compote scale service=replicas`)
 
 ### Planned 📋
 
 - [ ] Port forwarding (host to container)
 - [ ] Network DNS resolution between containers
-- [ ] Scale command
 
 ## License
 
