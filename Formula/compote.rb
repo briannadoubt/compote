@@ -9,6 +9,7 @@ class Compote < Formula
   depends_on "swift" => :build
   depends_on xcode: ["16.0", :build]
   depends_on :macos => :sequoia
+  depends_on "socat"
 
   def install
     system "swift", "build",
@@ -31,6 +32,7 @@ class Compote < Formula
         - Linux kernel (automatically downloaded on first run)
 
       Run 'compote setup' to verify your installation and download required components.
+      Note: TCP port forwarding via service ports requires socat (installed as a formula dependency).
 
       For more information:
         https://github.com/briannadoubt/compote
