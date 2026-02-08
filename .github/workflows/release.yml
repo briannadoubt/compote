@@ -73,10 +73,59 @@ jobs:
             ## What's Changed
             See the full changelog below.
 
+  build-bottle:
+    name: Build Homebrew Bottle
+    runs-on: macos-15
+    needs: create-release
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build bottle from formula
+        id: bottle
+        run: |
+          set -euo pipefail
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          REPO="${{ github.repository }}"
+          TAP_NAME="local/compote-bottle"
+
+          curl -L -o source.tar.gz "https://github.com/${REPO}/archive/refs/tags/${TAG}.tar.gz"
+          SOURCE_SHA=$(shasum -a 256 source.tar.gz | awk '{print $1}')
+
+          mkdir -p /tmp/compote-bottle
+          cp Formula/compote.rb /tmp/compote-bottle/compote.rb
+          sed -i '' "s|url \".*\"|url \"https://github.com/${REPO}/archive/refs/tags/${TAG}.tar.gz\"|" /tmp/compote-bottle/compote.rb
+          sed -i '' "s|sha256 \".*\"|sha256 \"${SOURCE_SHA}\"|" /tmp/compote-bottle/compote.rb
+
+          brew tap-new "${TAP_NAME}" >/dev/null
+          TAP_REPO="$(brew --repo "${TAP_NAME}")"
+          cp /tmp/compote-bottle/compote.rb "${TAP_REPO}/Formula/compote.rb"
+
+          brew install --build-bottle "${TAP_NAME}/compote"
+          brew bottle --json "${TAP_NAME}/compote"
+
+          BOTTLE_FILE=$(ls -1 compote--*.bottle.tar.gz | head -n1)
+          BOTTLE_JSON=$(ls -1 compote--*.bottle.json | head -n1)
+
+          echo "bottle_file=${BOTTLE_FILE}" >> "$GITHUB_OUTPUT"
+          echo "bottle_json=${BOTTLE_JSON}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload bottle assets to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload \
+            "${{ github.ref_name }}" \
+            "${{ steps.bottle.outputs.bottle_file }}" \
+            "${{ steps.bottle.outputs.bottle_json }}" \
+            --clobber
+
   update-formula:
     name: Update Homebrew Formula
     runs-on: macos-15
-    needs: create-release
+    needs: [create-release, build-bottle]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -97,11 +146,46 @@ jobs:
           VERSION="${VERSION#v}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
+          # Download bottle for current macOS runner target
+          BOTTLE_TAG="arm64_tahoe"
+          BOTTLE_FILE="compote--${VERSION}.${BOTTLE_TAG}.bottle.tar.gz"
+          curl -L -o "${BOTTLE_FILE}" \
+            "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${BOTTLE_FILE}"
+          BOTTLE_SHA256=$(shasum -a 256 "${BOTTLE_FILE}" | awk '{print $1}')
+          echo "bottle_file=${BOTTLE_FILE}" >> $GITHUB_OUTPUT
+          echo "bottle_tag=${BOTTLE_TAG}" >> $GITHUB_OUTPUT
+          echo "bottle_sha256=${BOTTLE_SHA256}" >> $GITHUB_OUTPUT
+
       - name: Update Formula
         run: |
-          # Update the formula with new version and SHA
-          sed -i '' 's|url ".*"|url "https://github.com/${{ github.repository }}/archive/refs/tags/${{ github.ref_name }}.tar.gz"|' Formula/compote.rb
-          sed -i '' 's|sha256 ".*"|sha256 "${{ steps.release_info.outputs.sha256 }}"|' Formula/compote.rb
+          ruby <<'RUBY'
+          path = "Formula/compote.rb"
+          content = File.read(path)
+
+          content = content.sub(
+            /url ".*"/,
+            "url \"https://github.com/${{ github.repository }}/archive/refs/tags/${{ github.ref_name }}.tar.gz\""
+          )
+          content = content.sub(
+            /sha256 ".*"/,
+            "sha256 \"${{ steps.release_info.outputs.sha256 }}\""
+          )
+
+          # Replace any existing bottle block.
+          content = content.gsub(/(?m)^  bottle do\n.*?^  end\n\n/, "")
+
+          bottle_block = <<~BOTTLE
+            bottle do
+              root_url "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}"
+              sha256 ${{ steps.release_info.outputs.bottle_tag }}: "${{ steps.release_info.outputs.bottle_sha256 }}"
+            end
+
+          BOTTLE
+
+          indented_bottle_block = bottle_block.lines.map { |line| "  #{line}" }.join
+          content = content.sub(/(  head ".*"\n\n)/, "\\1#{indented_bottle_block}")
+          File.write(path, content)
+          RUBY
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v5
@@ -109,9 +193,11 @@ jobs:
           commit-message: "Update formula to ${{ github.ref_name }}"
           title: "Update formula to ${{ github.ref_name }}"
           body: |
-            Automated formula update for release ${{ github.ref_name }}
+            Automated formula update for release ${{ github.ref_name }} with bottle metadata.
 
             - Version: ${{ steps.release_info.outputs.version }}
-            - SHA256: ${{ steps.release_info.outputs.sha256 }}
+            - Source SHA256: ${{ steps.release_info.outputs.sha256 }}
+            - Bottle: ${{ steps.release_info.outputs.bottle_file }}
+            - Bottle SHA256: ${{ steps.release_info.outputs.bottle_sha256 }}
           branch: formula-update-${{ github.ref_name }}
           delete-branch: true

@@ -63,12 +63,17 @@ This is simpler but:
 
 ## Maintaining the Formula
 
+## Bottles First
+
+Compote should be distributed primarily through Homebrew bottles so end users do not compile Swift toolchains from source during install.
+
 ### When Releasing a New Version
 
 The GitHub Actions workflow automatically:
 1. Calculates new SHA256
-2. Updates the formula
-3. Creates a PR
+2. Builds and uploads bottle artifacts to the GitHub Release
+3. Updates the formula (source URL + bottle metadata)
+4. Creates a PR
 
 Or manually:
 
@@ -81,6 +86,9 @@ curl -L https://github.com/briannadoubt/compote/archive/refs/tags/v0.1.0.tar.gz 
 # - New sha256
 
 # Test locally
+./scripts/test-bottle-install.sh briannadoubt/tap/compote
+
+# Optional maintainer-only source build validation
 ./scripts/test-formula.sh
 
 # Commit and push
@@ -121,7 +129,10 @@ brew test-bot compote
 ### Local Testing
 
 ```bash
-# Test formula + install from an ephemeral local tap
+# Bottle-only install validation (recommended)
+./scripts/test-bottle-install.sh briannadoubt/tap/compote
+
+# Optional maintainer source-build validation
 ./scripts/test-formula.sh
 
 # Verify
@@ -170,8 +181,8 @@ brew audit --strict --online Formula/compote.rb
 ### Installation Failures
 
 ```bash
-# Try verbose mode
-brew install --build-from-source --verbose Formula/compote.rb
+# Force bottle install to avoid source builds
+brew install --force-bottle briannadoubt/tap/compote
 
 # Check logs
 cat ~/Library/Logs/Homebrew/compote/
@@ -191,7 +202,7 @@ brew install containerization socat
 
 ## Best Practices
 
-1. **Test before releasing**: Always test formula locally
+1. **Test before releasing**: Validate bottle installs (`--force-bottle`)
 2. **Use semantic versioning**: v0.1.0, v0.2.0, etc.
 3. **Keep formula updated**: Automated via GitHub Actions
 4. **Document dependencies**: In formula caveats (`containerization`, `socat`)

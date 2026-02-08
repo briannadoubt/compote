@@ -78,6 +78,9 @@ Option B: **In-Repo Formula**
 # Test the formula
 ./scripts/test-formula.sh
 
+# Bottle-only install validation (recommended)
+./scripts/test-bottle-install.sh briannadoubt/tap/compote
+
 # Or manually:
 brew tap-new local/compote-test
 cp Formula/compote.rb "$(brew --repo local/compote-test)/Formula/compote.rb"
@@ -175,6 +178,7 @@ compote setup
 ## 🆘 Need Help?
 
 - Formula not working? Run: `./scripts/test-formula.sh` (uses a temporary local tap)
+- Bottle install failing? Run: `./scripts/test-bottle-install.sh briannadoubt/tap/compote`
 - Build failing? Check: `.github/workflows/release.yml`
 - Installation issues? Check: `compote setup --verbose`
 

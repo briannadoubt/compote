@@ -22,6 +22,7 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 - Orchestrator now hydrates persisted state for cross-invocation command reliability.
 - `logs` now honors `--follow` and `--tail`.
 - Homebrew formula now declares `socat` as a dependency for port forwarding.
+- Release automation now builds/uploads Homebrew bottles and updates formula bottle metadata.
 
 ### Tests
 - Added parser coverage for service config/secret references.

@@ -47,6 +47,12 @@ The Homebrew formula installs:
 - ✅ Shell completions
 - ✅ Runtime TCP relay dependency (`socat`)
 
+Homebrew bottle installs are recommended to avoid source compilation:
+
+```bash
+brew install --force-bottle compote
+```
+
 The Linux kernel and container runtime are automatically downloaded when you first run `compote setup` or `compote up`.
 
 ### Using Mint

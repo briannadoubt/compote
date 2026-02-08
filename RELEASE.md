@@ -9,6 +9,7 @@ This document describes how to create a new release of Compote.
 3. Version is bumped in appropriate places
 4. `CHANGELOG.md` is updated
 5. Homebrew formula dependencies are current (`swift`, `xcode`, `socat`)
+6. Bottle install smoke check passes: `./scripts/test-bottle-install.sh`
 
 ## Steps
 
@@ -28,8 +29,8 @@ git push origin "v${VERSION}"
 The GitHub Actions workflow (`.github/workflows/release.yml`) will automatically:
 1. Build the release binary
 2. Create a GitHub Release
-3. Upload release artifacts
-4. Update the Homebrew formula
+3. Build and upload Homebrew bottle artifacts
+4. Update the Homebrew formula (including bottle metadata)
 5. Create a PR with the formula update
 
 ### 3. Merge Formula Update
@@ -115,6 +116,7 @@ Before releasing:
 - [ ] No broken links in docs
 - [ ] Formula dependencies are correct
 - [ ] Installation tested on clean machine
+- [ ] Bottle-only install verified (`brew install --force-bottle compote`)
 
 After releasing:
 
