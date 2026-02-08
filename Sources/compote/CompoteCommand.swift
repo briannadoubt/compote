@@ -15,7 +15,8 @@ struct CompoteCommand: ParsableCommand {
             StopCommand.self,
             RestartCommand.self,
             ExecCommand.self,
-            ConfigCommand.self
+            ConfigCommand.self,
+            PullCommand.self
         ],
         defaultSubcommand: UpCommand.self
     )

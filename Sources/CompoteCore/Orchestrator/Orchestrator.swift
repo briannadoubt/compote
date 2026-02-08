@@ -281,6 +281,38 @@ public actor Orchestrator {
         ])
     }
 
+    /// Pull images for selected services
+    public func pull(services: [String]? = nil) async throws {
+        await hydrateStateIfNeeded()
+
+        let servicesToPull = services ?? Array(composeFile.services.keys)
+
+        logger.info("Pulling service images", metadata: [
+            "project": "\(projectName)",
+            "count": "\(servicesToPull.count)"
+        ])
+
+        for serviceName in servicesToPull {
+            guard let service = composeFile.services[serviceName] else {
+                throw OrchestratorError.serviceNotFound(serviceName)
+            }
+
+            guard let image = service.image else {
+                logger.info("Skipping service without image reference", metadata: [
+                    "service": "\(serviceName)"
+                ])
+                continue
+            }
+
+            _ = try await imageManager.pullImage(reference: image)
+
+            logger.info("Image pulled", metadata: [
+                "service": "\(serviceName)",
+                "image": "\(image)"
+            ])
+        }
+    }
+
     /// Stop all services and remove them
     public func down(removeVolumes: Bool = false) async throws {
         await hydrateStateIfNeeded()
