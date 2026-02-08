@@ -276,10 +276,7 @@ swift test
 - ✅ Service name discovery via generated `/etc/hosts` entries
 - ✅ TCP/UDP port forwarding (`service.ports`) via host relay processes (`socat` required)
 - ✅ Replica selectors for `logs`, `exec`, `start`, `stop`, and `restart` (`service#replica`)
-
-### Planned 📋
-
-- Expanded CLI integration coverage for multi-replica workflows
+- ✅ Expanded parser/integration coverage for multi-replica selector and port-mapping workflows
 
 ## License
 

@@ -225,7 +225,9 @@ public actor Orchestrator {
         ])
 
         // Determine which services (or replicas) to start
-        let parsedSelections = try services.map(parseServiceSelections)
+        let parsedSelections = try services.map { selectors in
+            try parseServiceSelections(selectors).values
+        }
         let servicesToStart = parsedSelections?.keys.sorted() ?? Array(composeFile.services.keys)
 
         // Filter to only include services/replicas that are not running
@@ -296,7 +298,9 @@ public actor Orchestrator {
         ])
 
         // Determine which services (or replicas) to stop
-        let parsedSelections = try services.map(parseServiceSelections)
+        let parsedSelections = try services.map { selectors in
+            try parseServiceSelections(selectors).values
+        }
         let servicesToStop: Set<String>
         if let parsedSelections {
             servicesToStop = Set(parsedSelections.keys)
@@ -991,40 +995,19 @@ public actor Orchestrator {
         return try await container.exec(command: command, environment: environment)
     }
 
-    private struct ServiceSelector {
-        let serviceName: String
-        let replicaIndex: Int?
-    }
-
-    private enum ReplicaSelection {
-        case all
-        case indices(Set<Int>)
-    }
-
-    private func parseServiceSelections(_ values: [String]) throws -> [String: ReplicaSelection] {
-        var selections: [String: ReplicaSelection] = [:]
-
-        for value in values {
-            let selector = try parseServiceSelector(value)
-            guard composeFile.services[selector.serviceName] != nil else {
-                throw OrchestratorError.serviceNotFound(selector.serviceName)
+    private func parseServiceSelections(_ values: [String]) throws -> ServiceSelections {
+        do {
+            return try ServiceSelections.parse(values, validServices: Set(composeFile.services.keys))
+        } catch let error as ServiceSelectionError {
+            switch error {
+            case .invalidSelector(let value):
+                throw OrchestratorError.invalidServiceSelector(value)
+            case .unknownService(let service):
+                throw OrchestratorError.serviceNotFound(service)
             }
-
-            if let replicaIndex = selector.replicaIndex {
-                if case .all = selections[selector.serviceName] {
-                    continue
-                }
-                if case .indices(let existing) = selections[selector.serviceName] {
-                    selections[selector.serviceName] = .indices(existing.union([replicaIndex]))
-                } else {
-                    selections[selector.serviceName] = .indices([replicaIndex])
-                }
-            } else {
-                selections[selector.serviceName] = .all
-            }
+        } catch {
+            throw error
         }
-
-        return selections
     }
 
     private func replicaIndices(for selection: ReplicaSelection) -> Set<Int>? {
@@ -1041,25 +1024,18 @@ public actor Orchestrator {
             return composeFile.services.keys.sorted().map { ServiceSelector(serviceName: $0, replicaIndex: nil) }
         }
 
-        return try selectors.map(parseServiceSelector)
-    }
-
-    private func parseServiceSelector(_ value: String) throws -> ServiceSelector {
-        let parts = value.split(separator: "#", maxSplits: 1).map(String.init)
-        guard let serviceName = parts.first?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !serviceName.isEmpty else {
-            throw OrchestratorError.invalidServiceSelector(value)
+        do {
+            return try selectors.map(ServiceSelector.parse)
+        } catch let error as ServiceSelectionError {
+            switch error {
+            case .invalidSelector(let value):
+                throw OrchestratorError.invalidServiceSelector(value)
+            case .unknownService(let service):
+                throw OrchestratorError.serviceNotFound(service)
+            }
+        } catch {
+            throw error
         }
-
-        if parts.count == 1 {
-            return ServiceSelector(serviceName: serviceName, replicaIndex: nil)
-        }
-
-        guard let replicaIndex = Int(parts[1]), replicaIndex > 0 else {
-            throw OrchestratorError.invalidServiceSelector(value)
-        }
-
-        return ServiceSelector(serviceName: serviceName, replicaIndex: replicaIndex)
     }
 
     private func containerDisplayName(serviceName: String, replicaIndex: Int) -> String {
@@ -1074,55 +1050,6 @@ public actor Orchestrator {
         let runtimeReplicas = containers[serviceName].map { Array($0.keys) } ?? []
         let knownReplicas = knownContainers[serviceName].map { Array($0.keys) } ?? []
         return Array(Set(runtimeReplicas).union(knownReplicas)).sorted()
-    }
-
-    private struct PortMapping {
-        let hostIP: String
-        let hostPort: Int
-        let containerPort: Int
-        let proto: String
-    }
-
-    private func parsePortMapping(_ spec: String) throws -> PortMapping {
-        let parts = spec.split(separator: "/", maxSplits: 1).map(String.init)
-        let mappingPart = parts[0]
-        let proto = parts.count > 1 ? parts[1].lowercased() : "tcp"
-        guard proto == "tcp" || proto == "udp" else {
-            throw OrchestratorError.portForwardingFailed(
-                "Unsupported protocol in port mapping '\(spec)'. Use tcp or udp."
-            )
-        }
-
-        let fields = mappingPart.split(separator: ":").map(String.init)
-        if fields.count == 2,
-           let hostPort = Int(fields[0]),
-           let containerPort = Int(fields[1]),
-           (1...65535).contains(hostPort),
-           (1...65535).contains(containerPort) {
-            return PortMapping(
-                hostIP: "0.0.0.0",
-                hostPort: hostPort,
-                containerPort: containerPort,
-                proto: proto
-            )
-        }
-
-        if fields.count == 3,
-           let hostPort = Int(fields[1]),
-           let containerPort = Int(fields[2]),
-           (1...65535).contains(hostPort),
-           (1...65535).contains(containerPort) {
-            return PortMapping(
-                hostIP: fields[0],
-                hostPort: hostPort,
-                containerPort: containerPort,
-                proto: proto
-            )
-        }
-
-        throw OrchestratorError.portForwardingFailed(
-            "Invalid port mapping '\(spec)'. Expected host:container[/proto] or ip:host:container[/proto]."
-        )
     }
 
     private func makeServiceDiscoveryHostsEntries() -> [Hosts.Entry] {
@@ -1176,7 +1103,14 @@ public actor Orchestrator {
         try await removePortForwards(serviceName: serviceName, replicaIndex: replicaIndex)
 
         for portSpec in ports {
-            let mapping = try parsePortMapping(portSpec)
+            let mapping: PortMapping
+            do {
+                mapping = try PortMappingParser.parse(portSpec)
+            } catch let parseError as PortMappingParseError {
+                throw OrchestratorError.portForwardingFailed(parseError.description)
+            } catch {
+                throw OrchestratorError.portForwardingFailed("Invalid port mapping '\(portSpec)': \(error)")
+            }
 
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/env")

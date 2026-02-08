@@ -26,3 +26,5 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 ### Tests
 - Added parser coverage for service config/secret references.
 - Added `LogBuffer` coverage for `tail` and non-follow streaming behavior.
+- Added selector parser/merge coverage for multi-replica service targeting.
+- Added port mapping parser coverage for TCP/UDP syntax and validation failures.
