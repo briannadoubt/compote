@@ -8,6 +8,7 @@ import Darwin
 public enum OrchestratorError: Error, CustomStringConvertible {
     case serviceNotFound(String)
     case serviceNotRunning(String)
+    case invalidServiceSelector(String)
     case invalidScale(String)
     case portForwardingFailed(String)
     case failedToStart(String, Error)
@@ -19,6 +20,8 @@ public enum OrchestratorError: Error, CustomStringConvertible {
             return "Service not found: \(name)"
         case .serviceNotRunning(let name):
             return "Service is known but not running: \(name). Start services with `compote up -d` or `compote start`."
+        case .invalidServiceSelector(let selector):
+            return "Invalid service selector '\(selector)'. Use service or service#replica (for example: web or web#2)."
         case .invalidScale(let message):
             return "Invalid scale request: \(message)"
         case .portForwardingFailed(let message):
@@ -832,23 +835,41 @@ public actor Orchestrator {
     /// - Returns: AsyncStream of log lines prefixed with service name
     public func streamLogs(
         services: [String] = [],
-        includeStderr: Bool = true
-    ) async -> AsyncStream<String> {
+        includeStderr: Bool = true,
+        tail: Int? = nil,
+        follow: Bool = true
+    ) async throws -> AsyncStream<String> {
         await hydrateStateIfNeeded()
 
-        let servicesToStream = services.isEmpty ? Array(composeFile.services.keys) : services
+        let selectors = try resolveServiceSelectors(services)
 
         return AsyncStream { continuation in
             Task {
                 await withTaskGroup(of: Void.self) { group in
-                    for serviceName in servicesToStream {
+                    for selector in selectors {
+                        let serviceName = selector.serviceName
                         guard let replicas = containers[serviceName], !replicas.isEmpty else {
                             continue
                         }
 
-                        for (replicaIndex, container) in replicas {
+                        let replicasToStream: [(Int, ContainerRuntime)]
+                        if let replicaIndex = selector.replicaIndex {
+                            if let container = replicas[replicaIndex] {
+                                replicasToStream = [(replicaIndex, container)]
+                            } else {
+                                continue
+                            }
+                        } else {
+                            replicasToStream = replicas.sorted { $0.key < $1.key }
+                        }
+
+                        for (replicaIndex, container) in replicasToStream {
                             group.addTask {
-                                let logStream = await container.logs(includeStderr: includeStderr)
+                                let logStream = await container.logs(
+                                    includeStderr: includeStderr,
+                                    tail: tail,
+                                    follow: follow
+                                )
                                 let label = replicaIndex == 1 ? serviceName : "\(serviceName)#\(replicaIndex)"
                                 for await line in logStream {
                                     continuation.yield("[\(label)] \(line)")
@@ -872,23 +893,57 @@ public actor Orchestrator {
     /// - Returns: Exit code from the command
     public func exec(
         serviceName: String,
+        replicaIndex: Int = 1,
         command: [String],
         environment: [String: String] = [:]
     ) async throws -> Int32 {
         await hydrateStateIfNeeded()
 
-        guard let container = containers[serviceName]?[1] else {
+        guard let container = containers[serviceName]?[replicaIndex] else {
             if knownContainers[serviceName] != nil {
-                throw OrchestratorError.serviceNotRunning(serviceName)
+                let selector = replicaIndex == 1 ? serviceName : "\(serviceName)#\(replicaIndex)"
+                throw OrchestratorError.serviceNotRunning(selector)
             }
             throw OrchestratorError.serviceNotFound(serviceName)
         }
 
         guard await container.getIsRunning() else {
-            throw OrchestratorError.serviceNotRunning(serviceName)
+            let selector = replicaIndex == 1 ? serviceName : "\(serviceName)#\(replicaIndex)"
+            throw OrchestratorError.serviceNotRunning(selector)
         }
 
         return try await container.exec(command: command, environment: environment)
+    }
+
+    private struct ServiceSelector {
+        let serviceName: String
+        let replicaIndex: Int?
+    }
+
+    private func resolveServiceSelectors(_ selectors: [String]) throws -> [ServiceSelector] {
+        if selectors.isEmpty {
+            return composeFile.services.keys.sorted().map { ServiceSelector(serviceName: $0, replicaIndex: nil) }
+        }
+
+        return try selectors.map(parseServiceSelector)
+    }
+
+    private func parseServiceSelector(_ value: String) throws -> ServiceSelector {
+        let parts = value.split(separator: "#", maxSplits: 1).map(String.init)
+        guard let serviceName = parts.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !serviceName.isEmpty else {
+            throw OrchestratorError.invalidServiceSelector(value)
+        }
+
+        if parts.count == 1 {
+            return ServiceSelector(serviceName: serviceName, replicaIndex: nil)
+        }
+
+        guard let replicaIndex = Int(parts[1]), replicaIndex > 0 else {
+            throw OrchestratorError.invalidServiceSelector(value)
+        }
+
+        return ServiceSelector(serviceName: serviceName, replicaIndex: replicaIndex)
     }
 
     private func containerDisplayName(serviceName: String, replicaIndex: Int) -> String {

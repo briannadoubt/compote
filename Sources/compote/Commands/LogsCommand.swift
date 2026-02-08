@@ -24,7 +24,7 @@ struct LogsCommand: ParsableCommand {
     @Flag(name: .shortAndLong, help: "Show timestamps")
     var timestamps = false
 
-    @Argument(help: "Service names")
+    @Argument(help: "Service selectors (service or service#replica)")
     var services: [String] = []
 
     mutating func run() throws {
@@ -33,7 +33,12 @@ struct LogsCommand: ParsableCommand {
         let projectNameArg = projectName
         let servicesArg = services
         let timestampsFlag = timestamps
-        // Note: --follow flag is currently always enabled (streams continuously)
+        let followFlag = follow
+        let tailArg = tail
+
+        if let tailArg, tailArg < 0 {
+            throw ValidationError("--tail must be a non-negative integer")
+        }
 
         try runAsyncTask {
             // Setup logger
@@ -101,9 +106,11 @@ struct LogsCommand: ParsableCommand {
             }
 
             // Stream logs
-            let logStream = await orchestrator.streamLogs(
+            let logStream = try await orchestrator.streamLogs(
                 services: servicesToShow,
-                includeStderr: true
+                includeStderr: true,
+                tail: tailArg,
+                follow: followFlag
             )
 
             // Format and print logs

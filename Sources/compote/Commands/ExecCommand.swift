@@ -15,7 +15,7 @@ struct ExecCommand: ParsableCommand {
     @Option(name: .shortAndLong, help: "Project name")
     var projectName: String?
 
-    @Argument(help: "Service name")
+    @Argument(help: "Service name (or service#replica)")
     var service: String
 
     @Argument(parsing: .remaining, help: "Command to execute")
@@ -31,6 +31,8 @@ struct ExecCommand: ParsableCommand {
         guard !commandArg.isEmpty else {
             throw CompoteError.noCommand
         }
+
+        let (serviceNameArg, replicaIndexArg) = try parseServiceSelector(serviceArg)
 
         try runAsyncTask {
             // Setup logger
@@ -64,7 +66,8 @@ struct ExecCommand: ParsableCommand {
 
             // Execute command in container
             let exitCode = try await orchestrator.exec(
-                serviceName: serviceArg,
+                serviceName: serviceNameArg,
+                replicaIndex: replicaIndexArg,
                 command: commandArg,
                 environment: [:]
             )
@@ -74,5 +77,23 @@ struct ExecCommand: ParsableCommand {
                 throw CompoteError.commandFailed(exitCode)
             }
         }
+    }
+
+    private func parseServiceSelector(_ selector: String) throws -> (String, Int) {
+        let parts = selector.split(separator: "#", maxSplits: 1).map(String.init)
+        guard let serviceName = parts.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !serviceName.isEmpty else {
+            throw ValidationError("Service name cannot be empty")
+        }
+
+        if parts.count == 1 {
+            return (serviceName, 1)
+        }
+
+        guard let replicaIndex = Int(parts[1]), replicaIndex > 0 else {
+            throw ValidationError("Invalid service selector '\(selector)'. Use service or service#replica (example: web#2).")
+        }
+
+        return (serviceName, replicaIndex)
     }
 }
