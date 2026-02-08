@@ -49,6 +49,7 @@ public actor Orchestrator {
 
     private var containers: [String: [Int: ContainerRuntime]] = [:]
     private var knownContainers: [String: [Int: StateManager.ContainerInfo]] = [:]
+    private var serviceIPs: [String: [Int: String]] = [:]
     private var hasHydratedState = false
 
     public init(
@@ -451,6 +452,21 @@ public actor Orchestrator {
         do {
             // Initialize container manager if needed
             let manager = try await initializeContainerManager()
+            let containerID = containerID(serviceName: serviceName, replicaIndex: replicaIndex)
+
+            // Best-effort network attachment metadata for service discovery.
+            // If default network is unavailable, we continue without DNS mapping.
+            let defaultNetworkName = "\(projectName)_default"
+            if let ipAddress = try? await networkManager.connectContainer(
+                containerID: containerID,
+                networkName: defaultNetworkName
+            ) {
+                var replicas = serviceIPs[serviceName] ?? [:]
+                replicas[replicaIndex] = ipAddress
+                serviceIPs[serviceName] = replicas
+            }
+
+            let hostsEntries = makeServiceDiscoveryHostsEntries()
 
             // Build configuration
             let (imageReference, config) = try await serviceManager.buildConfiguration(
@@ -458,13 +474,13 @@ public actor Orchestrator {
                 service: service,
                 composeFile: composeFile,
                 projectName: projectName,
+                hostsEntries: hostsEntries,
                 imageManager: imageManager,
                 volumeManager: volumeManager,
                 networkManager: networkManager
             )
 
             // Create and start container
-            let containerID = containerID(serviceName: serviceName, replicaIndex: replicaIndex)
             let container = ContainerRuntime(
                 id: containerID,
                 name: displayName,
@@ -595,6 +611,7 @@ public actor Orchestrator {
                 }
             }
             knownContainers.removeValue(forKey: serviceName)
+            serviceIPs.removeValue(forKey: serviceName)
 
             logger.info("Service stopped", metadata: ["service": "\(serviceName)"])
         } catch {
@@ -626,6 +643,10 @@ public actor Orchestrator {
             var knownReplicas = knownContainers[serviceName] ?? [:]
             knownReplicas.removeValue(forKey: replicaIndex)
             knownContainers[serviceName] = knownReplicas.isEmpty ? nil : knownReplicas
+
+            var ips = serviceIPs[serviceName] ?? [:]
+            ips.removeValue(forKey: replicaIndex)
+            serviceIPs[serviceName] = ips.isEmpty ? nil : ips
         } catch {
             throw OrchestratorError.failedToStop("\(serviceName)#\(replicaIndex)", error)
         }
@@ -722,6 +743,7 @@ public actor Orchestrator {
         for serviceName in services {
             if let knownReplicas = knownContainers[serviceName] {
                 knownContainers.removeValue(forKey: serviceName)
+                serviceIPs.removeValue(forKey: serviceName)
                 for (_, info) in knownReplicas {
                     try await stateManager.removeContainer(name: info.name)
                 }
@@ -849,6 +871,21 @@ public actor Orchestrator {
         let runtimeReplicas = containers[serviceName].map { Array($0.keys) } ?? []
         let knownReplicas = knownContainers[serviceName].map { Array($0.keys) } ?? []
         return Array(Set(runtimeReplicas).union(knownReplicas)).sorted()
+    }
+
+    private func makeServiceDiscoveryHostsEntries() -> [Hosts.Entry] {
+        var entries: [Hosts.Entry] = []
+
+        for (serviceName, replicas) in serviceIPs {
+            for (replicaIndex, ipAddress) in replicas {
+                let hostname = replicaIndex == 1 ? serviceName : "\(serviceName)-\(replicaIndex)"
+                entries.append(Hosts.Entry(ipAddress: ipAddress, hostnames: [hostname]))
+            }
+        }
+
+        return entries.sorted { lhs, rhs in
+            lhs.hostnames.joined(separator: ",") < rhs.hostnames.joined(separator: ",")
+        }
     }
 
     /// Hydrate known container state from persisted state manager data.
