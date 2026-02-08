@@ -92,6 +92,7 @@ public actor Orchestrator {
             return manager
         }
 
+        try RuntimePreflight.ensureVirtualizationEntitlement()
         logger.info("Initializing container manager")
 
         // Get kernel
@@ -120,6 +121,7 @@ public actor Orchestrator {
         services: [String]? = nil,
         detach: Bool = false
     ) async throws {
+        try RuntimePreflight.ensureVirtualizationEntitlement()
         await hydrateStateIfNeeded()
 
         logger.info("Starting services", metadata: [
@@ -199,6 +201,7 @@ public actor Orchestrator {
         services: [String]? = nil,
         timeout: Duration = .seconds(10)
     ) async throws {
+        try RuntimePreflight.ensureVirtualizationEntitlement()
         await hydrateStateIfNeeded()
 
         logger.info("Restarting services", metadata: [
@@ -218,6 +221,7 @@ public actor Orchestrator {
 
     /// Start stopped containers
     public func start(services: [String]? = nil) async throws {
+        try RuntimePreflight.ensureVirtualizationEntitlement()
         await hydrateStateIfNeeded()
 
         logger.info("Starting services", metadata: [
@@ -403,6 +407,7 @@ public actor Orchestrator {
 
     /// Scale a service to the requested replica count.
     public func scale(serviceName: String, replicas: Int) async throws {
+        try RuntimePreflight.ensureVirtualizationEntitlement()
         await hydrateStateIfNeeded()
 
         guard replicas >= 0 else {

@@ -80,9 +80,15 @@ sudo cp .build/release/compote /usr/local/bin/
 # Optional runtime dependency for service port forwarding
 brew install socat
 
-# Verify setup (downloads kernel automatically)
+# Install container runtime artifacts (kernel/initfs)
+brew install container
+container system start
+
+# Verify setup
 compote setup
 ```
+
+Note: local source builds (`swift run` / `.build/debug/compote`) typically do not include required virtualization entitlements. Use a properly signed binary for full runtime (`up/start/scale/restart`) tests.
 
 ### First Run
 
@@ -94,6 +100,7 @@ compote setup
 
 This will verify that:
 - ✅ Linux kernel is available
+- ✅ Virtualization entitlement is present
 - ✅ Networking is supported (macOS 26+)
 - ✅ Storage directories are configured
 
@@ -196,17 +203,29 @@ If you see "Linux kernel not found" errors:
    ```bash
    compote setup
    ```
-
-   This will automatically download the required Linux kernel to:
-   `~/Library/Application Support/compote/kernel/`
+   If setup fails, install/start the container runtime:
+   ```bash
+   brew install container
+   container system start
+   ```
 
 2. **Check kernel location**:
    ```bash
-   ls -la ~/Library/Application\ Support/compote/kernel/vmlinuz
+   ls -la ~/Library/Application\ Support/compote/kernel/vmlinuz-arm64
    ```
 
 3. **Manually download if needed**:
    Visit https://github.com/apple/containerization for kernel download instructions
+
+### Missing Virtualization Entitlement
+
+If `compote up` fails before startup with a missing `com.apple.security.virtualization` entitlement:
+
+```bash
+codesign -d --entitlements :- "$(which compote)"
+```
+
+Use a properly signed Compote binary that includes this entitlement for runtime commands (`up`, `start`, `scale`, `restart`).
 
 ### Networking Issues (macOS < 26)
 
@@ -256,6 +275,14 @@ swift run compote up
 
 ```bash
 swift test
+```
+
+### Runtime E2E (Signed Binary)
+
+Run the local compose-like scenario matrix (up/down/scale/logs/exec/lifecycle) with a signed binary:
+
+```bash
+COMPOTE_BIN=/path/to/compote ./scripts/test-local-signed-e2e.sh
 ```
 
 ## Status

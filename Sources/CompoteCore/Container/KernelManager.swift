@@ -18,8 +18,9 @@ public enum KernelError: Error, CustomStringConvertible {
             Compote requires a Linux kernel to run containers. You can obtain one by:
 
             1. Using Homebrew (recommended):
-               brew install --cask --no-quarantine containerization
-               # This installs Apple's containerization tools with a kernel
+               brew install container
+               container system start
+               # This installs and initializes Apple's container runtime artifacts
 
             2. Building from source:
                git clone https://github.com/apple/containerization.git
