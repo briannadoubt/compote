@@ -254,11 +254,11 @@ swift test
 - ✅ Push command for service images (`compote push`)
 - ✅ Service-level config and secret file mounts
 - ✅ Scale command (`compote scale service=replicas`)
+- ✅ Service name discovery via generated `/etc/hosts` entries
 
 ### Planned 📋
 
 - [ ] Port forwarding (host to container)
-- [ ] Network DNS resolution between containers
 
 ## License
 
