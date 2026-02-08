@@ -51,7 +51,6 @@ public actor KernelManager {
     private let kernelDir: URL
     private let logger: Logger
     private var cachedKernel: Kernel?
-    private var cachedInitfsReference: String?
 
     public init(logger: Logger) throws {
         self.logger = logger
@@ -158,8 +157,61 @@ public actor KernelManager {
 
     /// Get initfs reference for ContainerManager
     public nonisolated func getInitfsReference() -> String {
-        // Use vminit:latest as specified in the plan
-        return "vminit:latest"
+        if let override = ProcessInfo.processInfo.environment["COMPOTE_VMINIT_REF"], !override.isEmpty {
+            return override
+        }
+
+        if let discovered = Self.discoverInstalledVminitReference() {
+            return discovered
+        }
+
+        // Fallback to a fully-qualified reference (required by Containerization image parser).
+        return "ghcr.io/apple/containerization/vminit:0.13.0"
+    }
+
+    nonisolated static func discoverInstalledVminitReference() -> String? {
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first!
+        let statePath = appSupport
+            .appendingPathComponent("com.apple.container")
+            .appendingPathComponent("state.json")
+
+        guard
+            let data = try? Data(contentsOf: statePath),
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return nil
+        }
+
+        let refs = Array(json.keys)
+        return latestVminitReference(from: refs)
+    }
+
+    nonisolated static func latestVminitReference(from imageReferences: [String]) -> String? {
+        let prefix = "ghcr.io/apple/containerization/vminit:"
+        let tagged = imageReferences.compactMap { ref -> (String, [Int])? in
+            guard ref.hasPrefix(prefix) else { return nil }
+            let version = String(ref.dropFirst(prefix.count))
+            let components = version.split(separator: ".").compactMap { Int($0) }
+            guard !components.isEmpty else { return nil }
+            return (ref, components)
+        }
+
+        return tagged.max { lhs, rhs in
+            let a = lhs.1
+            let b = rhs.1
+            let maxCount = max(a.count, b.count)
+            for i in 0..<maxCount {
+                let av = i < a.count ? a[i] : 0
+                let bv = i < b.count ? b[i] : 0
+                if av != bv {
+                    return av < bv
+                }
+            }
+            return false
+        }?.0
     }
 
     /// Download or verify kernel is available
@@ -184,12 +236,13 @@ public actor KernelManager {
 
         Quick Setup (Recommended):
         ---------------------------
-        1. Install Apple's containerization framework via Homebrew:
+        1. Install Apple's container CLI via Homebrew:
 
-           brew tap apple/containerization
-           brew install containerization
+           brew install container
 
-           This will install the necessary kernel and tools.
+        2. Start the container runtime (downloads kernel artifacts if needed):
+
+           container system start
 
         Manual Setup:
         -------------

@@ -26,9 +26,10 @@ public struct ServiceManager: Sendable {
         // Resolve image reference
         let imageReference: String
         if let image = service.image {
+            let canonicalImage = ImageManager.canonicalImageReference(image)
             // Ensure image is pulled/available
-            _ = try await imageManager.pullImage(reference: image)
-            imageReference = image
+            _ = try await imageManager.pullImage(reference: canonicalImage)
+            imageReference = canonicalImage
         } else if let build = service.build {
             let context = build.context ?? "."
             let dockerfile = build.dockerfile ?? "Dockerfile"

@@ -350,11 +350,12 @@ public actor Orchestrator {
                 continue
             }
 
-            _ = try await imageManager.pullImage(reference: image)
+            let imageReference = ImageManager.canonicalImageReference(image)
+            _ = try await imageManager.pullImage(reference: imageReference)
 
             logger.info("Image pulled", metadata: [
                 "service": "\(serviceName)",
-                "image": "\(image)"
+                "image": "\(imageReference)"
             ])
         }
     }
@@ -377,7 +378,7 @@ public actor Orchestrator {
 
             let imageToPush: String?
             if let image = service.image {
-                imageToPush = image
+                imageToPush = ImageManager.canonicalImageReference(image)
             } else if service.build != nil {
                 imageToPush = "\(projectName)_\(serviceName):latest"
             } else {

@@ -62,15 +62,17 @@ public actor ImageManager {
     /// Note: Actual pulling is handled by ContainerManager.
     /// This method just tracks that we've requested this image.
     public func pullImage(reference: String) async throws -> URL {
+        let canonicalReference = Self.canonicalImageReference(reference)
+
         // Check if already tracked
-        if let existing = images[reference] {
-            logger.debug("Image reference already tracked", metadata: ["image": "\(reference)"])
+        if let existing = images[canonicalReference] {
+            logger.debug("Image reference already tracked", metadata: ["image": "\(canonicalReference)"])
             return existing.localPath
         }
 
-        logger.info("Registering image reference", metadata: ["image": "\(reference)"])
+        logger.info("Registering image reference", metadata: ["image": "\(canonicalReference)"])
 
-        let parsed = parseImageReference(reference)
+        let parsed = parseImageReference(canonicalReference)
         let imagePath = imagesDir
             .appendingPathComponent(parsed.name.replacingOccurrences(of: "/", with: "_"))
             .appendingPathComponent(parsed.tag)
@@ -85,22 +87,22 @@ public actor ImageManager {
             // Track the image reference
             // Actual OCI image pulling is handled by ContainerManager's ImageStore
             let info = ImageInfo(
-                reference: reference,
+                reference: canonicalReference,
                 digest: nil,
                 size: 0,
                 localPath: imagePath
             )
-            images[reference] = info
+            images[canonicalReference] = info
 
             logger.info("Image reference registered", metadata: [
-                "image": "\(reference)",
+                "image": "\(canonicalReference)",
                 "path": "\(imagePath.path)"
             ])
 
             return imagePath
         } catch {
             logger.error("Failed to register image", metadata: [
-                "image": "\(reference)",
+                "image": "\(canonicalReference)",
                 "error": "\(error)"
             ])
             throw ImageError.failedToPull(error.localizedDescription)
@@ -256,8 +258,10 @@ public actor ImageManager {
 
     /// Push image to remote registry using Docker
     public func pushImage(reference: String) async throws {
+        let canonicalReference = Self.canonicalImageReference(reference)
+
         logger.info("Pushing image", metadata: [
-            "image": "\(reference)"
+            "image": "\(canonicalReference)"
         ])
 
         // Check if docker is available
@@ -280,7 +284,7 @@ public actor ImageManager {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["docker", "push", reference]
+        process.arguments = ["docker", "push", canonicalReference]
 
         let outputPipe = Pipe()
         let errorPipe = Pipe()
@@ -300,6 +304,7 @@ public actor ImageManager {
             guard process.terminationStatus == 0 else {
                 logger.error("Docker push failed", metadata: [
                     "image": "\(reference)",
+                    "canonicalImage": "\(canonicalReference)",
                     "exitCode": "\(process.terminationStatus)",
                     "output": "\(output)",
                     "error": "\(errorOutput)"
@@ -308,11 +313,59 @@ public actor ImageManager {
             }
 
             logger.info("Image pushed", metadata: [
-                "image": "\(reference)"
+                "image": "\(canonicalReference)"
             ])
         } catch {
             throw ImageError.failedToPush(error.localizedDescription)
         }
+    }
+
+    /// Convert Docker-style shorthand to fully-qualified OCI references.
+    /// Examples:
+    /// - nginx -> docker.io/library/nginx:latest
+    /// - nginx:alpine -> docker.io/library/nginx:alpine
+    /// - org/app:1.0 -> docker.io/org/app:1.0
+    public nonisolated static func canonicalImageReference(_ reference: String) -> String {
+        let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return reference }
+        if trimmed.contains("@sha256:") { return trimmed }
+
+        let parsed = parseReferenceComponents(trimmed)
+        let firstPathComponent = parsed.path.split(separator: "/").first.map(String.init) ?? parsed.path
+        let hasRegistry = firstPathComponent.contains(".")
+            || firstPathComponent.contains(":")
+            || firstPathComponent == "localhost"
+
+        let normalizedPath: String
+        if hasRegistry {
+            normalizedPath = parsed.path
+        } else if parsed.path.contains("/") {
+            normalizedPath = "docker.io/\(parsed.path)"
+        } else {
+            normalizedPath = "docker.io/library/\(parsed.path)"
+        }
+
+        return "\(normalizedPath):\(parsed.tag)"
+    }
+
+    private nonisolated static func parseReferenceComponents(_ reference: String) -> (path: String, tag: String) {
+        // If there is a colon after the last slash, treat it as a tag delimiter.
+        if
+            let slash = reference.lastIndex(of: "/"),
+            let colon = reference[slash...].lastIndex(of: ":")
+        {
+            let path = String(reference[..<colon])
+            let tag = String(reference[reference.index(after: colon)...])
+            return (path, tag)
+        }
+
+        if !reference.contains("/"), let colon = reference.lastIndex(of: ":") {
+            let path = String(reference[..<colon])
+            let tag = String(reference[reference.index(after: colon)...])
+            return (path, tag)
+        }
+
+        return (reference, "latest")
     }
 
     /// Parse image reference into components
