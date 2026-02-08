@@ -955,22 +955,36 @@ public actor Orchestrator {
     /// - Returns: Exit code from the command
     public func exec(
         serviceName: String,
-        replicaIndex: Int = 1,
+        replicaIndex: Int? = nil,
         command: [String],
         environment: [String: String] = [:]
     ) async throws -> Int32 {
         await hydrateStateIfNeeded()
 
-        guard let container = containers[serviceName]?[replicaIndex] else {
+        let selectedReplicaIndex: Int
+        if let replicaIndex {
+            selectedReplicaIndex = replicaIndex
+        } else {
+            let runningReplicas = await runningReplicaIndices(serviceName: serviceName)
+            if let firstRunning = runningReplicas.first {
+                selectedReplicaIndex = firstRunning
+            } else if knownContainers[serviceName] != nil {
+                throw OrchestratorError.serviceNotRunning(serviceName)
+            } else {
+                throw OrchestratorError.serviceNotFound(serviceName)
+            }
+        }
+
+        guard let container = containers[serviceName]?[selectedReplicaIndex] else {
             if knownContainers[serviceName] != nil {
-                let selector = replicaIndex == 1 ? serviceName : "\(serviceName)#\(replicaIndex)"
+                let selector = selectedReplicaIndex == 1 ? serviceName : "\(serviceName)#\(selectedReplicaIndex)"
                 throw OrchestratorError.serviceNotRunning(selector)
             }
             throw OrchestratorError.serviceNotFound(serviceName)
         }
 
         guard await container.getIsRunning() else {
-            let selector = replicaIndex == 1 ? serviceName : "\(serviceName)#\(replicaIndex)"
+            let selector = selectedReplicaIndex == 1 ? serviceName : "\(serviceName)#\(selectedReplicaIndex)"
             throw OrchestratorError.serviceNotRunning(selector)
         }
 
@@ -1281,5 +1295,18 @@ public actor Orchestrator {
             }
         }
         return runningCount
+    }
+
+    private func runningReplicaIndices(serviceName: String) async -> [Int] {
+        guard let replicas = containers[serviceName], !replicas.isEmpty else {
+            return []
+        }
+        var result: [Int] = []
+        for (replicaIndex, container) in replicas {
+            if await container.getIsRunning() {
+                result.append(replicaIndex)
+            }
+        }
+        return result.sorted()
     }
 }

@@ -79,7 +79,7 @@ struct ExecCommand: ParsableCommand {
         }
     }
 
-    private func parseServiceSelector(_ selector: String) throws -> (String, Int) {
+    private func parseServiceSelector(_ selector: String) throws -> (String, Int?) {
         let parts = selector.split(separator: "#", maxSplits: 1).map(String.init)
         guard let serviceName = parts.first?.trimmingCharacters(in: .whitespacesAndNewlines),
               !serviceName.isEmpty else {
@@ -87,7 +87,7 @@ struct ExecCommand: ParsableCommand {
         }
 
         if parts.count == 1 {
-            return (serviceName, 1)
+            return (serviceName, nil)
         }
 
         guard let replicaIndex = Int(parts[1]), replicaIndex > 0 else {
