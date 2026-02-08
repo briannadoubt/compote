@@ -43,29 +43,32 @@ public actor LogBuffer {
         continuations.removeAll()
     }
 
-    public func stream() -> AsyncStream<String> {
+    public func stream(tail: Int? = nil, follow: Bool = true) -> AsyncStream<String> {
         return AsyncStream { continuation in
             Task {
-                // First, yield all existing lines
-                let existingLines = await self.getLines()
+                // First, yield buffered lines (optionally tailed)
+                let existingLines = self.getLines(tail: tail)
                 for line in existingLines {
                     continuation.yield(line)
                 }
 
                 // If already closed, finish immediately
-                let closed = await self.isClosed
-                if closed {
+                let closed = self.isClosed
+                if closed || !follow {
                     continuation.finish()
                 } else {
                     // Otherwise, register for future lines
-                    await self.registerContinuation(continuation)
+                    self.registerContinuation(continuation)
                 }
             }
         }
     }
 
-    private func getLines() -> [String] {
-        return lines
+    private func getLines(tail: Int?) -> [String] {
+        guard let tail, tail >= 0 else {
+            return lines
+        }
+        return Array(lines.suffix(tail))
     }
 
     private func registerContinuation(_ continuation: AsyncStream<String>.Continuation) {

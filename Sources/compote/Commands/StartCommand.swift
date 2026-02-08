@@ -15,7 +15,7 @@ struct StartCommand: ParsableCommand {
     @Option(name: .shortAndLong, help: "Project name")
     var projectName: String?
 
-    @Argument(help: "Service names")
+    @Argument(help: "Service selectors (service or service#replica)")
     var services: [String] = []
 
     mutating func run() throws {

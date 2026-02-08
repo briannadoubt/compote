@@ -45,6 +45,13 @@ compote setup
 The Homebrew formula installs:
 - ✅ Compote binary
 - ✅ Shell completions
+- ✅ Runtime TCP relay dependency (`socat`)
+
+Homebrew bottle installs are recommended to avoid source compilation:
+
+```bash
+brew install --force-bottle compote
+```
 
 The Linux kernel and container runtime are automatically downloaded when you first run `compote setup` or `compote up`.
 
@@ -70,9 +77,18 @@ swift build -c release
 # Install binary
 sudo cp .build/release/compote /usr/local/bin/
 
-# Verify setup (downloads kernel automatically)
+# Optional runtime dependency for service port forwarding
+brew install socat
+
+# Install container runtime artifacts (kernel/initfs)
+brew install container
+container system start
+
+# Verify setup
 compote setup
 ```
+
+Note: local source builds (`swift run` / `.build/debug/compote`) typically do not include required virtualization entitlements. Use a properly signed binary for full runtime (`up/start/scale/restart`) tests.
 
 ### First Run
 
@@ -84,6 +100,7 @@ compote setup
 
 This will verify that:
 - ✅ Linux kernel is available
+- ✅ Virtualization entitlement is present
 - ✅ Networking is supported (macOS 26+)
 - ✅ Storage directories are configured
 
@@ -114,12 +131,27 @@ compote ps
 
 # View logs
 compote logs -f
+compote logs --tail 100
+compote logs web#2
 
 # Execute command in container
 compote exec web bash
+compote exec web#2 sh
+
+# Pull/push images
+compote pull
+compote push
 
 # Validate config
 compote config
+
+# Scale services
+compote scale web=3 worker=2
+
+# Target specific replicas for lifecycle commands
+compote stop web#2
+compote start web#2
+compote restart web#2
 ```
 
 ### Compose File
@@ -171,17 +203,29 @@ If you see "Linux kernel not found" errors:
    ```bash
    compote setup
    ```
-
-   This will automatically download the required Linux kernel to:
-   `~/Library/Application Support/compote/kernel/`
+   If setup fails, install/start the container runtime:
+   ```bash
+   brew install container
+   container system start
+   ```
 
 2. **Check kernel location**:
    ```bash
-   ls -la ~/Library/Application\ Support/compote/kernel/vmlinuz
+   ls -la ~/Library/Application\ Support/compote/kernel/vmlinuz-arm64
    ```
 
 3. **Manually download if needed**:
    Visit https://github.com/apple/containerization for kernel download instructions
+
+### Missing Virtualization Entitlement
+
+If `compote up` fails before startup with a missing `com.apple.security.virtualization` entitlement:
+
+```bash
+codesign -d --entitlements :- "$(which compote)"
+```
+
+Use a properly signed Compote binary that includes this entitlement for runtime commands (`up`, `start`, `scale`, `restart`).
 
 ### Networking Issues (macOS < 26)
 
@@ -233,6 +277,14 @@ swift run compote up
 swift test
 ```
 
+### Runtime E2E (Signed Binary)
+
+Run the local compose-like scenario matrix (up/down/scale/logs/exec/lifecycle) with a signed binary:
+
+```bash
+COMPOTE_BIN=/path/to/compote ./scripts/test-local-signed-e2e.sh
+```
+
 ## Status
 
 ### Implemented ✅
@@ -250,15 +302,14 @@ swift test
 - ✅ Multi-service parallel startup
 - ✅ Resource limits (CPU, memory)
 - ✅ Environment variable interpolation
-
-### Planned 📋
-
-- [ ] Port forwarding (host to container)
-- [ ] Network DNS resolution between containers
-- [ ] Config and secrets support
-- [ ] Scale command
-- [ ] Pull command
-- [ ] Push command for custom images
+- ✅ Pull command (`compote pull`) and `up --pull`
+- ✅ Push command for service images (`compote push`)
+- ✅ Service-level config and secret file mounts
+- ✅ Scale command (`compote scale service=replicas`)
+- ✅ Service name discovery via generated `/etc/hosts` entries
+- ✅ TCP/UDP port forwarding (`service.ports`) via host relay processes (`socat` required)
+- ✅ Replica selectors for `logs`, `exec`, `start`, `stop`, and `restart` (`service#replica`)
+- ✅ Expanded parser/integration coverage for multi-replica selector and port-mapping workflows
 
 ## License
 

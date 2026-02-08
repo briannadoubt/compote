@@ -29,15 +29,18 @@ public actor StateManager {
         public var containers: [String: ContainerInfo]
         public var networks: [String: NetworkInfo]
         public var volumes: [String: VolumeInfo]
+        public var portForwards: [String: PortForwardInfo]
 
         public init(
             containers: [String: ContainerInfo] = [:],
             networks: [String: NetworkInfo] = [:],
-            volumes: [String: VolumeInfo] = [:]
+            volumes: [String: VolumeInfo] = [:],
+            portForwards: [String: PortForwardInfo] = [:]
         ) {
             self.containers = containers
             self.networks = networks
             self.volumes = volumes
+            self.portForwards = portForwards
         }
     }
 
@@ -45,12 +48,23 @@ public actor StateManager {
         public let id: String
         public let name: String
         public let imageReference: String
+        public let serviceName: String?
+        public let replicaIndex: Int?
         public let createdAt: Date
 
-        public init(id: String, name: String, imageReference: String, createdAt: Date = Date()) {
+        public init(
+            id: String,
+            name: String,
+            imageReference: String,
+            serviceName: String? = nil,
+            replicaIndex: Int? = nil,
+            createdAt: Date = Date()
+        ) {
             self.id = id
             self.name = name
             self.imageReference = imageReference
+            self.serviceName = serviceName
+            self.replicaIndex = replicaIndex
             self.createdAt = createdAt
         }
     }
@@ -80,6 +94,37 @@ public actor StateManager {
             self.driver = driver
             self.mountPath = mountPath
             self.isExternal = isExternal
+        }
+    }
+
+    public struct PortForwardInfo: Codable, Sendable {
+        public let id: String
+        public let serviceName: String
+        public let replicaIndex: Int
+        public let hostIP: String
+        public let hostPort: Int
+        public let targetIP: String
+        public let targetPort: Int
+        public let pid: Int32
+
+        public init(
+            id: String,
+            serviceName: String,
+            replicaIndex: Int,
+            hostIP: String,
+            hostPort: Int,
+            targetIP: String,
+            targetPort: Int,
+            pid: Int32
+        ) {
+            self.id = id
+            self.serviceName = serviceName
+            self.replicaIndex = replicaIndex
+            self.hostIP = hostIP
+            self.hostPort = hostPort
+            self.targetIP = targetIP
+            self.targetPort = targetPort
+            self.pid = pid
         }
     }
 
@@ -223,6 +268,20 @@ public actor StateManager {
     public func removeVolume(name: String) async throws {
         var state = try await load() ?? ProjectState()
         state.volumes.removeValue(forKey: name)
+        try await save(state: state)
+    }
+
+    /// Update port forward in state
+    public func updatePortForward(info: PortForwardInfo) async throws {
+        var state = try await load() ?? ProjectState()
+        state.portForwards[info.id] = info
+        try await save(state: state)
+    }
+
+    /// Remove port forward from state
+    public func removePortForward(id: String) async throws {
+        var state = try await load() ?? ProjectState()
+        state.portForwards.removeValue(forKey: id)
         try await save(state: state)
     }
 }

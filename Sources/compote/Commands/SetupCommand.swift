@@ -41,6 +41,17 @@ struct SetupCommand: ParsableCommand {
             throw ExitCode.failure
         }
 
+        // Check virtualization entitlement required for VM startup
+        if RuntimePreflight.hasVirtualizationEntitlement() {
+            print("✅ Virtualization entitlement: Present")
+        } else {
+            print("❌ Virtualization entitlement: Missing")
+            print("   Required entitlement: com.apple.security.virtualization")
+            print("   Binary: \(RuntimePreflight.executablePath())")
+            print("   Check with: codesign -d --entitlements :- \"\(RuntimePreflight.executablePath())\"")
+            throw ExitCode.failure
+        }
+
         // Check macOS version for vmnet support
         if #available(macOS 26, *) {
             print("✅ Networking: vmnet supported (macOS 26+)")

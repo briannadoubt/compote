@@ -26,6 +26,8 @@ public struct Service: Codable, Sendable {
     // Volumes and mounts
     public let volumes: [String]?
     public let tmpfs: [String]?
+    public let configs: [ServiceConfigReference]?
+    public let secrets: [ServiceSecretReference]?
 
     // Dependencies
     public let depends_on: DependsOn?
@@ -62,6 +64,8 @@ public struct Service: Codable, Sendable {
         networks: Networks? = nil,
         volumes: [String]? = nil,
         tmpfs: [String]? = nil,
+        configs: [ServiceConfigReference]? = nil,
+        secrets: [ServiceSecretReference]? = nil,
         depends_on: DependsOn? = nil,
         healthcheck: HealthCheck? = nil,
         deploy: DeployConfig? = nil,
@@ -85,6 +89,8 @@ public struct Service: Codable, Sendable {
         self.networks = networks
         self.volumes = volumes
         self.tmpfs = tmpfs
+        self.configs = configs
+        self.secrets = secrets
         self.depends_on = depends_on
         self.healthcheck = healthcheck
         self.deploy = deploy
@@ -92,6 +98,126 @@ public struct Service: Codable, Sendable {
         self.labels = labels
         self.profiles = profiles
         self.logging = logging
+    }
+}
+
+public struct ServiceConfigReferenceObject: Codable, Sendable {
+    public let source: String
+    public let target: String?
+
+    public init(source: String, target: String? = nil) {
+        self.source = source
+        self.target = target
+    }
+}
+
+public enum ServiceConfigReference: Codable, Sendable {
+    case simple(String)
+    case detailed(ServiceConfigReferenceObject)
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let source = try? container.decode(String.self) {
+            self = .simple(source)
+        } else if let object = try? container.decode(ServiceConfigReferenceObject.self) {
+            self = .detailed(object)
+        } else {
+            throw DecodingError.typeMismatch(
+                ServiceConfigReference.self,
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Expected string or config object"
+                )
+            )
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .simple(let source):
+            try container.encode(source)
+        case .detailed(let object):
+            try container.encode(object)
+        }
+    }
+
+    public var source: String {
+        switch self {
+        case .simple(let source):
+            return source
+        case .detailed(let object):
+            return object.source
+        }
+    }
+
+    public var target: String? {
+        switch self {
+        case .simple:
+            return nil
+        case .detailed(let object):
+            return object.target
+        }
+    }
+}
+
+public struct ServiceSecretReferenceObject: Codable, Sendable {
+    public let source: String
+    public let target: String?
+
+    public init(source: String, target: String? = nil) {
+        self.source = source
+        self.target = target
+    }
+}
+
+public enum ServiceSecretReference: Codable, Sendable {
+    case simple(String)
+    case detailed(ServiceSecretReferenceObject)
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let source = try? container.decode(String.self) {
+            self = .simple(source)
+        } else if let object = try? container.decode(ServiceSecretReferenceObject.self) {
+            self = .detailed(object)
+        } else {
+            throw DecodingError.typeMismatch(
+                ServiceSecretReference.self,
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Expected string or secret object"
+                )
+            )
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .simple(let source):
+            try container.encode(source)
+        case .detailed(let object):
+            try container.encode(object)
+        }
+    }
+
+    public var source: String {
+        switch self {
+        case .simple(let source):
+            return source
+        case .detailed(let object):
+            return object.source
+        }
+    }
+
+    public var target: String? {
+        switch self {
+        case .simple:
+            return nil
+        case .detailed(let object):
+            return object.target
+        }
     }
 }
 

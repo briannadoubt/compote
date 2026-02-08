@@ -24,7 +24,7 @@ struct LogsCommand: ParsableCommand {
     @Flag(name: .shortAndLong, help: "Show timestamps")
     var timestamps = false
 
-    @Argument(help: "Service names")
+    @Argument(help: "Service selectors (service or service#replica)")
     var services: [String] = []
 
     mutating func run() throws {
@@ -33,7 +33,12 @@ struct LogsCommand: ParsableCommand {
         let projectNameArg = projectName
         let servicesArg = services
         let timestampsFlag = timestamps
-        // Note: --follow flag is currently always enabled (streams continuously)
+        let followFlag = follow
+        let tailArg = tail
+
+        if let tailArg, tailArg < 0 {
+            throw ValidationError("--tail must be a non-negative integer")
+        }
 
         try runAsyncTask {
             // Setup logger
@@ -65,13 +70,21 @@ struct LogsCommand: ParsableCommand {
                 logger: logger
             )
 
-            // Check if any services are running
-            let runningServices = await orchestrator.listServices()
-                .filter { $0.1 }
-                .map { $0.0 }
+            // Check service statuses
+            let serviceStatuses = await orchestrator.listServiceStatuses()
+            let runningServices = serviceStatuses
+                .filter { $0.isRunning }
+                .map { $0.name }
+            let knownStoppedServices = serviceStatuses
+                .filter { !$0.isRunning && $0.isKnown }
+                .map { $0.name }
 
             guard !runningServices.isEmpty else {
-                logger.error("No running containers found")
+                if knownStoppedServices.isEmpty {
+                    logger.error("No running containers found")
+                } else {
+                    logger.error("No running containers found. Known stopped services: \(knownStoppedServices.joined(separator: ", ")). Start them with `compote start` or `compote up -d`.")
+                }
                 throw CompoteError.noRunningContainers
             }
 
@@ -80,8 +93,12 @@ struct LogsCommand: ParsableCommand {
             if servicesArg.isEmpty {
                 servicesToShow = runningServices
             } else {
-                servicesToShow = servicesArg.filter { runningServices.contains($0) }
-                let notRunning = servicesArg.filter { !runningServices.contains($0) }
+                servicesToShow = servicesArg.filter {
+                    runningServices.contains(Self.baseServiceName(for: $0))
+                }
+                let notRunning = servicesArg.filter {
+                    !runningServices.contains(Self.baseServiceName(for: $0))
+                }
                 if !notRunning.isEmpty {
                     logger.warning("Services not running: \(notRunning.joined(separator: ", "))")
                 }
@@ -93,9 +110,11 @@ struct LogsCommand: ParsableCommand {
             }
 
             // Stream logs
-            let logStream = await orchestrator.streamLogs(
+            let logStream = try await orchestrator.streamLogs(
                 services: servicesToShow,
-                includeStderr: true
+                includeStderr: true,
+                tail: tailArg,
+                follow: followFlag
             )
 
             // Format and print logs
@@ -111,5 +130,9 @@ struct LogsCommand: ParsableCommand {
                 }
             }
         }
+    }
+
+    private static func baseServiceName(for selector: String) -> String {
+        selector.split(separator: "#", maxSplits: 1).first.map(String.init) ?? selector
     }
 }

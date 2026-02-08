@@ -32,6 +32,7 @@ struct UpCommand: ParsableCommand {
         let fileArg = file
         let projectNameArg = projectName
         let detachFlag = detach
+        let pullFlag = pull
         let servicesArg = services
 
         try runAsyncTask {
@@ -70,6 +71,9 @@ struct UpCommand: ParsableCommand {
 
             // Start services
             let servicesToStart = servicesArg.isEmpty ? nil : servicesArg
+            if pullFlag {
+                try await orchestrator.pull(services: servicesToStart)
+            }
             try await orchestrator.up(
                 services: servicesToStart,
                 detach: detachFlag

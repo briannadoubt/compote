@@ -162,7 +162,7 @@ public actor ContainerRuntime {
         // Delete container from manager
         do {
             var manager = self.containerManager
-            try await manager.delete(id)
+            try manager.delete(id)
             self.containerManager = manager
             logger.info("Container deleted", metadata: ["container": "\(name)"])
         } catch {
@@ -223,14 +223,18 @@ public actor ContainerRuntime {
 
     /// Stream logs from container
     /// Returns an AsyncStream that yields log lines from stdout and stderr
-    public func logs(includeStderr: Bool = true) async -> AsyncStream<String> {
+    public func logs(
+        includeStderr: Bool = true,
+        tail: Int? = nil,
+        follow: Bool = true
+    ) async -> AsyncStream<String> {
         // Merge stdout and stderr streams
         return AsyncStream { continuation in
             Task {
                 await withTaskGroup(of: Void.self) { group in
                     // Stream stdout
                     group.addTask {
-                        for await line in await self.stdoutBuffer.stream() {
+                        for await line in await self.stdoutBuffer.stream(tail: tail, follow: follow) {
                             continuation.yield(line)
                         }
                     }
@@ -238,7 +242,7 @@ public actor ContainerRuntime {
                     // Stream stderr if requested
                     if includeStderr {
                         group.addTask {
-                            for await line in await self.stderrBuffer.stream() {
+                            for await line in await self.stderrBuffer.stream(tail: tail, follow: follow) {
                                 continuation.yield(line)
                             }
                         }

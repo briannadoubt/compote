@@ -3,10 +3,10 @@ import CompoteCore
 import Foundation
 import Logging
 
-struct PsCommand: ParsableCommand {
+struct PullCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "ps",
-        abstract: "List containers"
+        commandName: "pull",
+        abstract: "Pull service images"
     )
 
     @Option(name: .shortAndLong, help: "Path to compose file")
@@ -15,15 +15,19 @@ struct PsCommand: ParsableCommand {
     @Option(name: .shortAndLong, help: "Project name")
     var projectName: String?
 
+    @Argument(help: "Service names to pull (all if not specified)")
+    var services: [String] = []
+
     mutating func run() throws {
         // Capture values before async context
         let fileArg = file
         let projectNameArg = projectName
+        let servicesArg = services
 
         try runAsyncTask {
             // Setup logger
             var logger = Logger(label: "compote")
-            logger.logLevel = .warning
+            logger.logLevel = .info
 
             // Find compose file
             let parser = ComposeFileParser()
@@ -50,25 +54,11 @@ struct PsCommand: ParsableCommand {
                 logger: logger
             )
 
-            // List services
-            let services = await orchestrator.listServiceStatuses()
+            // Pull images
+            let servicesToPull = servicesArg.isEmpty ? nil : servicesArg
+            try await orchestrator.pull(services: servicesToPull)
 
-            // Print table
-            print("NAME                    STATUS")
-            print("─────────────────────────────────────────")
-
-            for service in services.sorted(by: { $0.name < $1.name }) {
-                let status: String
-                if service.isRunning {
-                    status = "Up (\(service.runningReplicas))"
-                } else if service.isKnown {
-                    status = "Exited (\(service.knownReplicas))"
-                } else {
-                    status = "Not Created"
-                }
-                let paddedName = service.name.padding(toLength: 24, withPad: " ", startingAt: 0)
-                print("\(paddedName)\(status)")
-            }
+            logger.info("Image pull complete")
         }
     }
 }

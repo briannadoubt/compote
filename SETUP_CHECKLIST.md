@@ -17,9 +17,9 @@ The following files have been created for you:
 
 ## 📝 What You Need to Do
 
-### 1. Update Placeholders
+### 1. Update Placeholders (Only if Forking)
 
-Replace `briannadoubt` with your GitHub username in these files:
+If you are publishing under a different account, replace `briannadoubt` with your GitHub username in these files:
 
 ```bash
 # Use your editor or run:
@@ -78,15 +78,28 @@ Option B: **In-Repo Formula**
 # Test the formula
 ./scripts/test-formula.sh
 
+# Bottle-only install validation (recommended)
+./scripts/test-bottle-install.sh briannadoubt/tap/compote
+
 # Or manually:
-brew install --build-from-source ./Formula/compote.rb
+brew tap-new local/compote-test
+cp Formula/compote.rb "$(brew --repo local/compote-test)/Formula/compote.rb"
+brew install --build-from-source local/compote-test/compote
 compote setup
-brew uninstall compote
+brew uninstall local/compote-test/compote
+brew untap local/compote-test
+
+# Confirm dependencies expected by runtime paths are present
+brew list socat >/dev/null
 ```
 
 ### 5. Create First Release
 
 ```bash
+# Update changelog and docs first
+git add CHANGELOG.md README.md RELEASE.md SETUP_CHECKLIST.md HOMEBREW_TAP.md
+git commit -m "docs: prepare release notes and checklists"
+
 # Make sure everything is committed
 git add .
 git commit -m "Prepare for v0.1.0 release"
@@ -164,7 +177,8 @@ compote setup
 
 ## 🆘 Need Help?
 
-- Formula not working? Run: `brew audit --strict Formula/compote.rb`
+- Formula not working? Run: `./scripts/test-formula.sh` (uses a temporary local tap)
+- Bottle install failing? Run: `./scripts/test-bottle-install.sh briannadoubt/tap/compote`
 - Build failing? Check: `.github/workflows/release.yml`
 - Installation issues? Check: `compote setup --verbose`
 
