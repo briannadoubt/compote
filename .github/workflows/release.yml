@@ -12,7 +12,7 @@ permissions:
 jobs:
   create-release:
     name: Create Release
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -75,7 +75,7 @@ jobs:
 
   build-bottle:
     name: Build Homebrew Bottle
-    runs-on: macos-15
+    runs-on: macos-26
     needs: create-release
     steps:
       - name: Checkout code
@@ -124,7 +124,7 @@ jobs:
 
   update-formula:
     name: Update Homebrew Formula
-    runs-on: macos-15
+    runs-on: macos-26
     needs: [create-release, build-bottle]
     steps:
       - name: Checkout code
