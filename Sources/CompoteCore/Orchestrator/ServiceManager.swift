@@ -14,6 +14,7 @@ public struct ServiceManager: Sendable {
     public func buildConfiguration(
         serviceName: String,
         service: Service,
+        composeFile: ComposeFile,
         projectName: String,
         imageManager: ImageManager,
         volumeManager: VolumeManager,
@@ -93,6 +94,28 @@ public struct ServiceManager: Sendable {
             }
         }
 
+        // Mount service configs as read-only files
+        if let configRefs = service.configs {
+            for configRef in configRefs {
+                let mount = try processConfigMount(
+                    reference: configRef,
+                    composeFile: composeFile
+                )
+                config.mounts.append(mount)
+            }
+        }
+
+        // Mount service secrets as read-only files
+        if let secretRefs = service.secrets {
+            for secretRef in secretRefs {
+                let mount = try processSecretMount(
+                    reference: secretRef,
+                    composeFile: composeFile
+                )
+                config.mounts.append(mount)
+            }
+        }
+
         logger.debug("Built configuration for service", metadata: [
             "service": "\(serviceName)",
             "image": "\(imageReference)",
@@ -100,6 +123,73 @@ public struct ServiceManager: Sendable {
         ])
 
         return (imageReference, config)
+    }
+
+    private func processConfigMount(
+        reference: ServiceConfigReference,
+        composeFile: ComposeFile
+    ) throws -> Mount {
+        let source = reference.source
+
+        guard let config = composeFile.configs?[source] else {
+            throw ServiceError.configNotFound(source)
+        }
+
+        if config.external == true {
+            throw ServiceError.externalConfigNotSupported(source)
+        }
+
+        guard let filePath = config.file else {
+            throw ServiceError.configFileMissing(source)
+        }
+
+        let hostPath = resolveHostPath(filePath)
+        let targetPath = reference.target ?? "/\(source)"
+
+        return Mount.share(
+            source: hostPath.path,
+            destination: targetPath,
+            runtimeOptions: ["ro"]
+        )
+    }
+
+    private func processSecretMount(
+        reference: ServiceSecretReference,
+        composeFile: ComposeFile
+    ) throws -> Mount {
+        let source = reference.source
+
+        guard let secret = composeFile.secrets?[source] else {
+            throw ServiceError.secretNotFound(source)
+        }
+
+        if secret.external == true {
+            throw ServiceError.externalSecretNotSupported(source)
+        }
+
+        guard let filePath = secret.file else {
+            throw ServiceError.secretFileMissing(source)
+        }
+
+        let hostPath = resolveHostPath(filePath)
+        let targetPath = reference.target ?? "/run/secrets/\(source)"
+
+        return Mount.share(
+            source: hostPath.path,
+            destination: targetPath,
+            runtimeOptions: ["ro"]
+        )
+    }
+
+    private func resolveHostPath(_ path: String) -> URL {
+        if path.hasPrefix("/") {
+            return URL(fileURLWithPath: path)
+        }
+        if path.hasPrefix("~") {
+            return URL(fileURLWithPath: NSString(string: path).expandingTildeInPath)
+        }
+        let cwd = FileManager.default.currentDirectoryPath
+        return URL(fileURLWithPath: cwd).appendingPathComponent(path)
     }
 
     /// Parse memory string (e.g., "512m", "1g") to bytes
@@ -171,11 +261,29 @@ public struct ServiceManager: Sendable {
 
 public enum ServiceError: Error, CustomStringConvertible {
     case noImageOrBuild(String)
+    case configNotFound(String)
+    case secretNotFound(String)
+    case configFileMissing(String)
+    case secretFileMissing(String)
+    case externalConfigNotSupported(String)
+    case externalSecretNotSupported(String)
 
     public var description: String {
         switch self {
         case .noImageOrBuild(let service):
             return "Service \(service) has neither image nor build configuration"
+        case .configNotFound(let name):
+            return "Config not found: \(name)"
+        case .secretNotFound(let name):
+            return "Secret not found: \(name)"
+        case .configFileMissing(let name):
+            return "Config \(name) does not define a file path"
+        case .secretFileMissing(let name):
+            return "Secret \(name) does not define a file path"
+        case .externalConfigNotSupported(let name):
+            return "External config \(name) is not supported yet"
+        case .externalSecretNotSupported(let name):
+            return "External secret \(name) is not supported yet"
         }
     }
 }

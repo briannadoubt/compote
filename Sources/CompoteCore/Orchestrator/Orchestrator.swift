@@ -411,6 +411,7 @@ public actor Orchestrator {
             let (imageReference, config) = try await serviceManager.buildConfiguration(
                 serviceName: serviceName,
                 service: service,
+                composeFile: composeFile,
                 projectName: projectName,
                 imageManager: imageManager,
                 volumeManager: volumeManager,
