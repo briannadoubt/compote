@@ -185,10 +185,11 @@ cat ~/Library/Logs/Homebrew/compote/
 ```bash
 # Ensure containerization is in a tap or core
 brew search containerization
+brew search socat
 
-# If not available, users need to install it first
+# If not available, users need to install dependencies first
 brew tap apple/containerization
-brew install containerization
+brew install containerization socat
 ```
 
 ## Best Practices
@@ -196,7 +197,7 @@ brew install containerization
 1. **Test before releasing**: Always test formula locally
 2. **Use semantic versioning**: v0.1.0, v0.2.0, etc.
 3. **Keep formula updated**: Automated via GitHub Actions
-4. **Document dependencies**: In formula caveats
+4. **Document dependencies**: In formula caveats (`containerization`, `socat`)
 5. **Provide test block**: Verify installation works
 
 ## Resources

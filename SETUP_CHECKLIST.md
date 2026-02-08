@@ -17,9 +17,9 @@ The following files have been created for you:
 
 ## 📝 What You Need to Do
 
-### 1. Update Placeholders
+### 1. Update Placeholders (Only if Forking)
 
-Replace `briannadoubt` with your GitHub username in these files:
+If you are publishing under a different account, replace `briannadoubt` with your GitHub username in these files:
 
 ```bash
 # Use your editor or run:
@@ -82,11 +82,18 @@ Option B: **In-Repo Formula**
 brew install --build-from-source ./Formula/compote.rb
 compote setup
 brew uninstall compote
+
+# Confirm dependencies expected by runtime paths are present
+brew list socat >/dev/null
 ```
 
 ### 5. Create First Release
 
 ```bash
+# Update changelog and docs first
+git add CHANGELOG.md README.md RELEASE.md SETUP_CHECKLIST.md HOMEBREW_TAP.md
+git commit -m "docs: prepare release notes and checklists"
+
 # Make sure everything is committed
 git add .
 git commit -m "Prepare for v0.1.0 release"

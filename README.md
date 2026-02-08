@@ -45,6 +45,7 @@ compote setup
 The Homebrew formula installs:
 - ✅ Compote binary
 - ✅ Shell completions
+- ✅ Runtime TCP relay dependency (`socat`)
 
 The Linux kernel and container runtime are automatically downloaded when you first run `compote setup` or `compote up`.
 
@@ -69,6 +70,9 @@ swift build -c release
 
 # Install binary
 sudo cp .build/release/compote /usr/local/bin/
+
+# Optional runtime dependency for service port forwarding
+brew install socat
 
 # Verify setup (downloads kernel automatically)
 compote setup
@@ -114,12 +118,22 @@ compote ps
 
 # View logs
 compote logs -f
+compote logs --tail 100
+compote logs web#2
 
 # Execute command in container
 compote exec web bash
+compote exec web#2 sh
+
+# Pull/push images
+compote pull
+compote push
 
 # Validate config
 compote config
+
+# Scale services
+compote scale web=3 worker=2
 ```
 
 ### Compose File
@@ -259,6 +273,9 @@ swift test
 
 ### Planned 📋
 
+- UDP host port forwarding
+- Replica-specific targeting for additional commands
+- Expanded CLI integration coverage for multi-replica workflows
 
 ## License
 

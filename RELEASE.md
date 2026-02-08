@@ -7,7 +7,8 @@ This document describes how to create a new release of Compote.
 1. Ensure all changes are committed and pushed
 2. All tests pass: `swift test`
 3. Version is bumped in appropriate places
-4. CHANGELOG is updated
+4. `CHANGELOG.md` is updated
+5. Homebrew formula dependencies are current (`swift`, `xcode`, `socat`)
 
 ## Steps
 
@@ -81,6 +82,7 @@ SHA256=$(shasum -a 256 compote-v${VERSION}-macos-arm64.tar.gz | awk '{print $1}'
 # Update Formula/compote.rb:
 # - url: https://github.com/briannadoubt/compote/archive/refs/tags/v${VERSION}.tar.gz
 # - sha256: ${SHA256}
+# - dependencies include: swift, xcode, socat
 
 git add Formula/compote.rb
 git commit -m "Update formula to v${VERSION}"
@@ -108,7 +110,7 @@ Before releasing:
 - [ ] All tests pass
 - [ ] Documentation is updated
 - [ ] README reflects current features
-- [ ] CHANGELOG is updated
+- [ ] `CHANGELOG.md` is updated
 - [ ] Version is bumped
 - [ ] No broken links in docs
 - [ ] Formula dependencies are correct
