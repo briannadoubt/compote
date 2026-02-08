@@ -60,9 +60,9 @@ struct PsCommand: ParsableCommand {
             for service in services.sorted(by: { $0.name < $1.name }) {
                 let status: String
                 if service.isRunning {
-                    status = "Up"
+                    status = "Up (\(service.runningReplicas))"
                 } else if service.isKnown {
-                    status = "Exited"
+                    status = "Exited (\(service.knownReplicas))"
                 } else {
                     status = "Not Created"
                 }

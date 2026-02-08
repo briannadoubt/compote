@@ -31,6 +31,8 @@ public actor Orchestrator {
         public let name: String
         public let isRunning: Bool
         public let isKnown: Bool
+        public let runningReplicas: Int
+        public let knownReplicas: Int
     }
 
     private let composeFile: ComposeFile
@@ -786,9 +788,19 @@ public actor Orchestrator {
         var result: [ServiceStatus] = []
         let allServiceNames = Set(composeFile.services.keys).union(knownContainers.keys)
         for serviceName in allServiceNames.sorted() {
-            let isRunning = await hasRunningReplicas(serviceName: serviceName)
+            let runningReplicas = await runningReplicaCount(serviceName: serviceName)
+            let isRunning = runningReplicas > 0
+            let knownReplicas = knownReplicaIndices(for: serviceName).count
             let isKnown = knownContainers[serviceName] != nil || containers[serviceName] != nil
-            result.append(ServiceStatus(name: serviceName, isRunning: isRunning, isKnown: isKnown))
+            result.append(
+                ServiceStatus(
+                    name: serviceName,
+                    isRunning: isRunning,
+                    isKnown: isKnown,
+                    runningReplicas: runningReplicas,
+                    knownReplicas: knownReplicas
+                )
+            )
         }
         return result
     }
@@ -912,14 +924,19 @@ public actor Orchestrator {
     }
 
     private func hasRunningReplicas(serviceName: String) async -> Bool {
+        await runningReplicaCount(serviceName: serviceName) > 0
+    }
+
+    private func runningReplicaCount(serviceName: String) async -> Int {
         guard let replicas = containers[serviceName], !replicas.isEmpty else {
-            return false
+            return 0
         }
+        var runningCount = 0
         for (_, container) in replicas {
             if await container.getIsRunning() {
-                return true
+                runningCount += 1
             }
         }
-        return false
+        return runningCount
     }
 }
