@@ -1069,12 +1069,14 @@ public actor Orchestrator {
         let proto: String
     }
 
-    private func parsePortMapping(_ spec: String) -> PortMapping? {
+    private func parsePortMapping(_ spec: String) throws -> PortMapping {
         let parts = spec.split(separator: "/", maxSplits: 1).map(String.init)
         let mappingPart = parts[0]
         let proto = parts.count > 1 ? parts[1].lowercased() : "tcp"
         guard proto == "tcp" || proto == "udp" else {
-            return nil
+            throw OrchestratorError.portForwardingFailed(
+                "Unsupported protocol in port mapping '\(spec)'. Use tcp or udp."
+            )
         }
 
         let fields = mappingPart.split(separator: ":").map(String.init)
@@ -1083,7 +1085,12 @@ public actor Orchestrator {
            let containerPort = Int(fields[1]),
            (1...65535).contains(hostPort),
            (1...65535).contains(containerPort) {
-            return PortMapping(hostIP: "0.0.0.0", hostPort: hostPort, containerPort: containerPort, proto: proto)
+            return PortMapping(
+                hostIP: "0.0.0.0",
+                hostPort: hostPort,
+                containerPort: containerPort,
+                proto: proto
+            )
         }
 
         if fields.count == 3,
@@ -1091,10 +1098,17 @@ public actor Orchestrator {
            let containerPort = Int(fields[2]),
            (1...65535).contains(hostPort),
            (1...65535).contains(containerPort) {
-            return PortMapping(hostIP: fields[0], hostPort: hostPort, containerPort: containerPort, proto: proto)
+            return PortMapping(
+                hostIP: fields[0],
+                hostPort: hostPort,
+                containerPort: containerPort,
+                proto: proto
+            )
         }
 
-        return nil
+        throw OrchestratorError.portForwardingFailed(
+            "Invalid port mapping '\(spec)'. Expected host:container[/proto] or ip:host:container[/proto]."
+        )
     }
 
     private func makeServiceDiscoveryHostsEntries() -> [Hosts.Entry] {
@@ -1148,14 +1162,7 @@ public actor Orchestrator {
         try await removePortForwards(serviceName: serviceName, replicaIndex: replicaIndex)
 
         for portSpec in ports {
-            guard let mapping = parsePortMapping(portSpec) else {
-                logger.warning("Skipping unsupported port mapping", metadata: [
-                    "service": "\(serviceName)",
-                    "replica": "\(replicaIndex)",
-                    "mapping": "\(portSpec)"
-                ])
-                continue
-            }
+            let mapping = try parsePortMapping(portSpec)
 
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
