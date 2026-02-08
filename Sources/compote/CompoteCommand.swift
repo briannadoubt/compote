@@ -4,7 +4,7 @@ struct CompoteCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "compote",
         abstract: "A docker-compose like tool using Apple's containerization framework",
-        version: "0.2.1",
+        version: "0.3.0",
         subcommands: [
             SetupCommand.self,
             UpCommand.self,

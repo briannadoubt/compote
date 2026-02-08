@@ -6,6 +6,8 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-02-08
+
 ### Added
 - `compote pull` command and `up --pull` image pre-pull support.
 - `compote push` command for pushing service images.
