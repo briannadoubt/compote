@@ -440,12 +440,16 @@ public actor Orchestrator {
             try await stateManager.updateContainer(info: StateManager.ContainerInfo(
                 id: containerID,
                 name: serviceName,
-                imageReference: imageReference
+                imageReference: imageReference,
+                serviceName: serviceName,
+                replicaIndex: 1
             ))
             knownContainers[serviceName] = StateManager.ContainerInfo(
                 id: containerID,
                 name: serviceName,
-                imageReference: imageReference
+                imageReference: imageReference,
+                serviceName: serviceName,
+                replicaIndex: 1
             )
 
             logger.info("Service started", metadata: ["service": "\(serviceName)"])

@@ -45,12 +45,23 @@ public actor StateManager {
         public let id: String
         public let name: String
         public let imageReference: String
+        public let serviceName: String?
+        public let replicaIndex: Int?
         public let createdAt: Date
 
-        public init(id: String, name: String, imageReference: String, createdAt: Date = Date()) {
+        public init(
+            id: String,
+            name: String,
+            imageReference: String,
+            serviceName: String? = nil,
+            replicaIndex: Int? = nil,
+            createdAt: Date = Date()
+        ) {
             self.id = id
             self.name = name
             self.imageReference = imageReference
+            self.serviceName = serviceName
+            self.replicaIndex = replicaIndex
             self.createdAt = createdAt
         }
     }
