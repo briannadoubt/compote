@@ -22,6 +22,7 @@ You must configure these repository secrets exactly:
 - `MACOS_CERTIFICATE_PASSWORD`
 - `MACOS_KEYCHAIN_PASSWORD`
 - `MACOS_SIGNING_IDENTITY`
+- `GH_PR_TOKEN`
 
 ### Step 1: Export a Developer ID Application certificate as `.p12`
 
@@ -68,6 +69,8 @@ Use that exact string as `MACOS_SIGNING_IDENTITY`.
      Value: any strong random password (used only on the CI runner)
    - Name: `MACOS_SIGNING_IDENTITY`
      Value: exact identity string from Step 3
+   - Name: `GH_PR_TOKEN`
+     Value: a GitHub token that can create pull requests (recommended: a fine-grained PAT with repo access, or a classic PAT with `repo` scope)
 
 ### Step 5: Verify signing after a release
 

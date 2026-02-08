@@ -261,7 +261,7 @@ jobs:
 
       - name: Create Pull Request
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_PR_TOKEN || github.token }}
         run: |
           set -euo pipefail
           BRANCH="formula-update-${{ github.ref_name }}"
