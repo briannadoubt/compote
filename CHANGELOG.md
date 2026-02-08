@@ -13,6 +13,7 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 - Service-level config and secret reference parsing and read-only mounts.
 - Service discovery host entries for in-network name resolution.
 - TCP host port forwarding for `ports` via managed `socat` relays.
+- UDP host port forwarding for `ports` via managed `socat` relays.
 - Replica selector support for `logs` and `exec` (`service#replica`).
 - Replica selector support for lifecycle commands (`start`, `stop`, `restart`).
 

@@ -1073,21 +1073,24 @@ public actor Orchestrator {
         let parts = spec.split(separator: "/", maxSplits: 1).map(String.init)
         let mappingPart = parts[0]
         let proto = parts.count > 1 ? parts[1].lowercased() : "tcp"
-        guard proto == "tcp" else {
-            // UDP support can be added later; skip for now.
+        guard proto == "tcp" || proto == "udp" else {
             return nil
         }
 
         let fields = mappingPart.split(separator: ":").map(String.init)
         if fields.count == 2,
            let hostPort = Int(fields[0]),
-           let containerPort = Int(fields[1]) {
+           let containerPort = Int(fields[1]),
+           (1...65535).contains(hostPort),
+           (1...65535).contains(containerPort) {
             return PortMapping(hostIP: "0.0.0.0", hostPort: hostPort, containerPort: containerPort, proto: proto)
         }
 
         if fields.count == 3,
            let hostPort = Int(fields[1]),
-           let containerPort = Int(fields[2]) {
+           let containerPort = Int(fields[2]),
+           (1...65535).contains(hostPort),
+           (1...65535).contains(containerPort) {
             return PortMapping(hostIP: fields[0], hostPort: hostPort, containerPort: containerPort, proto: proto)
         }
 
@@ -1129,8 +1132,8 @@ public actor Orchestrator {
         }
     }
 
-    private func portForwardID(serviceName: String, replicaIndex: Int, hostPort: Int) -> String {
-        "\(serviceName)#\(replicaIndex)#\(hostPort)"
+    private func portForwardID(serviceName: String, replicaIndex: Int, hostPort: Int, proto: String) -> String {
+        "\(serviceName)#\(replicaIndex)#\(proto)#\(hostPort)"
     }
 
     private func setupPortForwards(
@@ -1156,11 +1159,16 @@ public actor Orchestrator {
 
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = [
-                "socat",
-                "TCP-LISTEN:\(mapping.hostPort),bind=\(mapping.hostIP),reuseaddr,fork",
-                "TCP:\(targetIP):\(mapping.containerPort)"
-            ]
+            let sourceAddress: String
+            let targetAddress: String
+            if mapping.proto == "udp" {
+                sourceAddress = "UDP4-RECVFROM:\(mapping.hostPort),bind=\(mapping.hostIP),reuseaddr,fork"
+                targetAddress = "UDP4-SENDTO:\(targetIP):\(mapping.containerPort)"
+            } else {
+                sourceAddress = "TCP-LISTEN:\(mapping.hostPort),bind=\(mapping.hostIP),reuseaddr,fork"
+                targetAddress = "TCP:\(targetIP):\(mapping.containerPort)"
+            }
+            process.arguments = ["socat", sourceAddress, targetAddress]
 
             let nullDevice = FileHandle.nullDevice
             process.standardInput = nullDevice
@@ -1173,7 +1181,8 @@ public actor Orchestrator {
                 let id = portForwardID(
                     serviceName: serviceName,
                     replicaIndex: replicaIndex,
-                    hostPort: mapping.hostPort
+                    hostPort: mapping.hostPort,
+                    proto: mapping.proto
                 )
                 portForwardPIDs[id] = pid
                 try await stateManager.updatePortForward(info: StateManager.PortForwardInfo(

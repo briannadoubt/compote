@@ -32,7 +32,7 @@ class Compote < Formula
         - Linux kernel (automatically downloaded on first run)
 
       Run 'compote setup' to verify your installation and download required components.
-      Note: TCP port forwarding via service ports requires socat (installed as a formula dependency).
+      Note: TCP/UDP port forwarding via service ports requires socat (installed as a formula dependency).
 
       For more information:
         https://github.com/briannadoubt/compote

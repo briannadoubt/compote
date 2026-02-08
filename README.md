@@ -274,12 +274,11 @@ swift test
 - ✅ Service-level config and secret file mounts
 - ✅ Scale command (`compote scale service=replicas`)
 - ✅ Service name discovery via generated `/etc/hosts` entries
-- ✅ TCP port forwarding (`service.ports`) via host relay processes (`socat` required)
+- ✅ TCP/UDP port forwarding (`service.ports`) via host relay processes (`socat` required)
 - ✅ Replica selectors for `logs`, `exec`, `start`, `stop`, and `restart` (`service#replica`)
 
 ### Planned 📋
 
-- UDP host port forwarding
 - Expanded CLI integration coverage for multi-replica workflows
 
 ## License
