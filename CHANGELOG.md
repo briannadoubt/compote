@@ -14,6 +14,7 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 - Service discovery host entries for in-network name resolution.
 - TCP host port forwarding for `ports` via managed `socat` relays.
 - Replica selector support for `logs` and `exec` (`service#replica`).
+- Replica selector support for lifecycle commands (`start`, `stop`, `restart`).
 
 ### Changed
 - `ps` now reports replica-aware status counts (for example `Up (3)`).

@@ -18,7 +18,7 @@ struct RestartCommand: ParsableCommand {
     @Option(name: .shortAndLong, help: "Timeout in seconds to wait for stop")
     var timeout: Int = 10
 
-    @Argument(help: "Service names")
+    @Argument(help: "Service selectors (service or service#replica)")
     var services: [String] = []
 
     mutating func run() throws {

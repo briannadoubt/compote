@@ -134,6 +134,11 @@ compote config
 
 # Scale services
 compote scale web=3 worker=2
+
+# Target specific replicas for lifecycle commands
+compote stop web#2
+compote start web#2
+compote restart web#2
 ```
 
 ### Compose File
@@ -270,11 +275,11 @@ swift test
 - ✅ Scale command (`compote scale service=replicas`)
 - ✅ Service name discovery via generated `/etc/hosts` entries
 - ✅ TCP port forwarding (`service.ports`) via host relay processes (`socat` required)
+- ✅ Replica selectors for `logs`, `exec`, `start`, `stop`, and `restart` (`service#replica`)
 
 ### Planned 📋
 
 - UDP host port forwarding
-- Replica-specific targeting for additional commands
 - Expanded CLI integration coverage for multi-replica workflows
 
 ## License

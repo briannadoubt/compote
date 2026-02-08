@@ -8,6 +8,7 @@ import Darwin
 public enum OrchestratorError: Error, CustomStringConvertible {
     case serviceNotFound(String)
     case serviceNotRunning(String)
+    case serviceReplicaNotFound(String, Int)
     case invalidServiceSelector(String)
     case invalidScale(String)
     case portForwardingFailed(String)
@@ -20,6 +21,8 @@ public enum OrchestratorError: Error, CustomStringConvertible {
             return "Service not found: \(name)"
         case .serviceNotRunning(let name):
             return "Service is known but not running: \(name). Start services with `compote up -d` or `compote start`."
+        case .serviceReplicaNotFound(let service, let replica):
+            return "Service replica not found: \(service)#\(replica). Create replicas with `compote scale \(service)=\(replica)`."
         case .invalidServiceSelector(let selector):
             return "Invalid service selector '\(selector)'. Use service or service#replica (for example: web or web#2)."
         case .invalidScale(let message):
@@ -221,21 +224,40 @@ public actor Orchestrator {
             "project": "\(projectName)"
         ])
 
-        // Determine which services to start
-        let servicesToStart = services ?? Array(composeFile.services.keys)
+        // Determine which services (or replicas) to start
+        let parsedSelections = try services.map(parseServiceSelections)
+        let servicesToStart = parsedSelections?.keys.sorted() ?? Array(composeFile.services.keys)
 
-        // Filter to only include services that exist but are not running
-        var stoppedServices: [String] = []
+        // Filter to only include services/replicas that are not running
+        var stoppedServices: [String: ReplicaSelection] = [:]
         for serviceName in servicesToStart {
+            let selection = parsedSelections?[serviceName] ?? .all
             let replicas = containers[serviceName] ?? [:]
-            if !replicas.isEmpty {
+            if case .indices(let selectedReplicas) = selection {
+                var shouldStart = false
+                for replicaIndex in selectedReplicas {
+                    if let container = replicas[replicaIndex] {
+                        if await container.getIsRunning() {
+                            continue
+                        }
+                        shouldStart = true
+                    } else if knownContainers[serviceName]?[replicaIndex] != nil {
+                        shouldStart = true
+                    } else {
+                        throw OrchestratorError.serviceReplicaNotFound(serviceName, replicaIndex)
+                    }
+                }
+                if shouldStart {
+                    stoppedServices[serviceName] = selection
+                }
+            } else if !replicas.isEmpty {
                 let hasRunningReplica = await hasRunningReplicas(serviceName: serviceName)
                 if !hasRunningReplica {
-                    stoppedServices.append(serviceName)
+                    stoppedServices[serviceName] = selection
                 }
             } else if knownContainers[serviceName] != nil {
                 // Service is known from persisted state but not currently running in this process.
-                stoppedServices.append(serviceName)
+                stoppedServices[serviceName] = selection
             }
         }
 
@@ -248,14 +270,12 @@ public actor Orchestrator {
         let startupOrder = try dependencyResolver.resolveStartupOrder(services: composeFile.services)
 
         for batch in startupOrder {
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                for serviceName in batch where stoppedServices.contains(serviceName) {
-                    group.addTask {
-                        try await self.resumeService(serviceName: serviceName)
-                    }
-                }
-
-                try await group.waitForAll()
+            for serviceName in batch where stoppedServices[serviceName] != nil {
+                let replicaSelection = stoppedServices[serviceName] ?? .all
+                try await resumeService(
+                    serviceName: serviceName,
+                    replicaIndices: replicaIndices(for: replicaSelection)
+                )
             }
         }
 
@@ -275,21 +295,26 @@ public actor Orchestrator {
             "project": "\(projectName)"
         ])
 
-        // Determine which services to stop
-        let servicesToStop = services ?? Array(composeFile.services.keys)
+        // Determine which services (or replicas) to stop
+        let parsedSelections = try services.map(parseServiceSelections)
+        let servicesToStop: Set<String>
+        if let parsedSelections {
+            servicesToStop = Set(parsedSelections.keys)
+        } else {
+            servicesToStop = Set(composeFile.services.keys)
+        }
 
         // Stop containers in reverse dependency order
         let startupOrder = try dependencyResolver.resolveStartupOrder(services: composeFile.services)
 
         for batch in startupOrder.reversed() {
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                for serviceName in batch where servicesToStop.contains(serviceName) {
-                    group.addTask {
-                        try await self.pauseService(serviceName: serviceName, timeout: timeout)
-                    }
-                }
-
-                try await group.waitForAll()
+            for serviceName in batch where servicesToStop.contains(serviceName) {
+                let replicaSelection = parsedSelections?[serviceName] ?? .all
+                try await pauseService(
+                    serviceName: serviceName,
+                    timeout: timeout,
+                    replicaIndices: replicaIndices(for: replicaSelection)
+                )
             }
         }
 
@@ -553,14 +578,20 @@ public actor Orchestrator {
     }
 
     /// Resume a stopped service
-    private func resumeService(serviceName: String) async throws {
+    private func resumeService(
+        serviceName: String,
+        replicaIndices: Set<Int>? = nil
+    ) async throws {
         guard composeFile.services[serviceName] != nil else {
             throw OrchestratorError.serviceNotFound(serviceName)
         }
 
-        if await hasRunningReplicas(serviceName: serviceName) {
-            logger.debug("Service already running", metadata: ["service": "\(serviceName)"])
-            return
+        if replicaIndices == nil {
+            let hasRunning = await hasRunningReplicas(serviceName: serviceName)
+            if hasRunning {
+                logger.debug("Service already running", metadata: ["service": "\(serviceName)"])
+                return
+            }
         }
 
         logger.info("Starting service", metadata: ["service": "\(serviceName)"])
@@ -571,10 +602,24 @@ public actor Orchestrator {
                 containers.removeValue(forKey: serviceName)
             }
 
-            let replicaIndices = knownReplicaIndices(for: serviceName)
-            let replicasToStart = replicaIndices.isEmpty ? [1] : replicaIndices
+            let knownIndices = Set(knownReplicaIndices(for: serviceName))
+            let replicasToStart: [Int]
+            if let replicaIndices {
+                replicasToStart = replicaIndices.sorted()
+            } else {
+                let defaults = knownIndices.sorted()
+                replicasToStart = defaults.isEmpty ? [1] : defaults
+            }
 
             for replicaIndex in replicasToStart {
+                if !knownIndices.contains(replicaIndex) && containers[serviceName]?[replicaIndex] == nil {
+                    throw OrchestratorError.serviceReplicaNotFound(serviceName, replicaIndex)
+                }
+
+                if let existing = containers[serviceName]?[replicaIndex],
+                   await existing.getIsRunning() {
+                    continue
+                }
                 try await startService(serviceName: serviceName, replicaIndex: replicaIndex)
             }
         } catch {
@@ -587,7 +632,11 @@ public actor Orchestrator {
     }
 
     /// Pause a specific service (stop without removing)
-    private func pauseService(serviceName: String, timeout: Duration) async throws {
+    private func pauseService(
+        serviceName: String,
+        timeout: Duration,
+        replicaIndices: Set<Int>? = nil
+    ) async throws {
         guard let replicas = containers[serviceName], !replicas.isEmpty else {
             logger.debug("Service not running", metadata: ["service": "\(serviceName)"])
             return
@@ -596,7 +645,20 @@ public actor Orchestrator {
         logger.info("Stopping service", metadata: ["service": "\(serviceName)"])
 
         do {
-            for (replicaIndex, container) in replicas {
+            let replicaOrder: [Int]
+            if let replicaIndices {
+                replicaOrder = replicaIndices.sorted()
+            } else {
+                replicaOrder = Array(replicas.keys).sorted()
+            }
+
+            for replicaIndex in replicaOrder {
+                guard let container = replicas[replicaIndex] else {
+                    throw OrchestratorError.serviceReplicaNotFound(serviceName, replicaIndex)
+                }
+                guard await container.getIsRunning() else {
+                    continue
+                }
                 try await container.stop(timeout: timeout)
                 try await removePortForwards(serviceName: serviceName, replicaIndex: replicaIndex)
             }
@@ -918,6 +980,46 @@ public actor Orchestrator {
     private struct ServiceSelector {
         let serviceName: String
         let replicaIndex: Int?
+    }
+
+    private enum ReplicaSelection {
+        case all
+        case indices(Set<Int>)
+    }
+
+    private func parseServiceSelections(_ values: [String]) throws -> [String: ReplicaSelection] {
+        var selections: [String: ReplicaSelection] = [:]
+
+        for value in values {
+            let selector = try parseServiceSelector(value)
+            guard composeFile.services[selector.serviceName] != nil else {
+                throw OrchestratorError.serviceNotFound(selector.serviceName)
+            }
+
+            if let replicaIndex = selector.replicaIndex {
+                if case .all = selections[selector.serviceName] {
+                    continue
+                }
+                if case .indices(let existing) = selections[selector.serviceName] {
+                    selections[selector.serviceName] = .indices(existing.union([replicaIndex]))
+                } else {
+                    selections[selector.serviceName] = .indices([replicaIndex])
+                }
+            } else {
+                selections[selector.serviceName] = .all
+            }
+        }
+
+        return selections
+    }
+
+    private func replicaIndices(for selection: ReplicaSelection) -> Set<Int>? {
+        switch selection {
+        case .all:
+            return nil
+        case .indices(let indices):
+            return indices
+        }
     }
 
     private func resolveServiceSelectors(_ selectors: [String]) throws -> [ServiceSelector] {
