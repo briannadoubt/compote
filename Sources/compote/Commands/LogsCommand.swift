@@ -93,8 +93,12 @@ struct LogsCommand: ParsableCommand {
             if servicesArg.isEmpty {
                 servicesToShow = runningServices
             } else {
-                servicesToShow = servicesArg.filter { runningServices.contains($0) }
-                let notRunning = servicesArg.filter { !runningServices.contains($0) }
+                servicesToShow = servicesArg.filter {
+                    runningServices.contains(Self.baseServiceName(for: $0))
+                }
+                let notRunning = servicesArg.filter {
+                    !runningServices.contains(Self.baseServiceName(for: $0))
+                }
                 if !notRunning.isEmpty {
                     logger.warning("Services not running: \(notRunning.joined(separator: ", "))")
                 }
@@ -126,5 +130,9 @@ struct LogsCommand: ParsableCommand {
                 }
             }
         }
+    }
+
+    private static func baseServiceName(for selector: String) -> String {
+        selector.split(separator: "#", maxSplits: 1).first.map(String.init) ?? selector
     }
 }
