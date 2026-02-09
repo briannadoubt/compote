@@ -1,3 +1,5 @@
+<img width="256" height="256" alt="compote" src="https://github.com/user-attachments/assets/d20e64e6-49e6-416e-a0b6-0056fc3e55cf" />
+
 # Compote
 
 A docker-compose like tool using Apple's containerization framework for macOS.
